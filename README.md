@@ -171,6 +171,37 @@ catalogue, and its corporate ownership graph — joined on an IMDb id and a comp
 requirement rather than an enforced one. Without realm-movie installed the join resolves to nothing
 and everything else here still works — a smaller answer, not a wrong one.
 
+## Plans, and what each one actually buys
+
+There is nothing between free and $299. The published ladder is:
+
+| Plan | Price | Credits/month | Entity exports (~25 credits each) | Rate limit |
+|---|---|---|---|---|
+| Free | $0 | 10,000 | **400** | 5 requests/**minute** |
+| Startup | $299/mo | 250,000 | 10,000 | 5 requests/**second** |
+| Plus | $899/mo | 1,000,000 | 40,000 | 25 requests/second |
+| Enterprise | custom | custom | — | 25+/second |
+
+Paid plans bill overage at $0.001/credit, so a Startup subscription is a floor rather than a cap —
+but there is no pay-as-you-go entry point below it.
+
+**Diffbot for Students** grants Startup-tier access free of charge to students and academic
+researchers. It is the only published route to a usable quota without the $299.
+
+The free tier's two limits bite in different ways. 400 entity exports a month is roughly 40 fetches
+at this realm's default `size: 10` — enough to demo, not enough to develop against. And 5 requests
+per minute is 60x slower than Startup, so a single ownership walk fanning across four hops spends
+most of a minute waiting.
+
+**The rate bucket here is paced for the FREE plan (`4/min`)**, because that is what an unconfigured
+install has and bursting at paid speed on a free token spends the month on 429s. On a paid plan,
+raise it:
+
+```bash
+sed -i '' 's|rate: "4/min"|rate: "5/sec"|g' producers/diffbot.yml     # Startup
+sed -i '' 's|rate: "4/min"|rate: "25/sec"|g' producers/diffbot.yml    # Plus
+```
+
 ## Cost — read this before running anything wide
 
 Diffbot bills **per entity exported** (~25 credits each), not per call. A fetch asking for 50
