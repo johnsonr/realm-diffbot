@@ -107,6 +107,17 @@ returns 113 actual Sydney companies. The plural reads as the natural translation
 Sydney" and is confidently wrong, so the DQL-authoring prompt teaches the singular for "in X" and
 the plural only for "has an office in X", with a worked example of each. Verified live 2026-08-14.
 
+**Diffbot entity ids are NOT canonical across access paths.** The same real-world company can be two
+records depending on how you reached it: an employment reference to Google carries
+`EUFq-3WlpNsq0pvfUYWXOEA`, while `enhance(url=google.com)` returns `EkUDBjismNf-8fUxNwfOCBw`. A
+further **12%** of employment references (129 of 1,121 sampled) carry no `targetDiffbotId` at all.
+
+The consequence is specific and worth internalising: **never test an enhance-resolved id for equality
+against a reference-derived id.** It matches nothing and reports success. Id-keyed hops are fine when
+both sides come from the same path — `PARENT_COMPANY`, `SUBSIDIARY_OF`, `CAREER_AT` all follow
+reference ids into an id lookup — but a cross-path comparison must match on NAME. `BoardInterlocks`
+does, and returned zero rows until it did.
+
 **A film's people and companies arrive as NAMES, not ids.** Diffbot resolves `parentCompany` to an
 entity id but not a film's `directors` or `productionCompanies`. Those hops therefore go through
 `enhance` with a 0.75 threshold rather than a DQL name search — `type:Organization name:"Warner Bros.
@@ -146,6 +157,20 @@ which is correct behaviour: twenty companies came back from a search, and a per-
 spend fifty calls answering a question about one. `RESOLVED_TO` binds a single scored best match, so
 every downstream hop starts from one anchor. Views that genuinely fan out from a search carry an
 explicit `companies` / `films` ceiling instead.
+
+### Verifying against the live API
+
+[`scripts/probe-live.py`](scripts/probe-live.py) renders every producer's own declared query from
+the shipped YAML, calls Diffbot, and checks that the fields the joins depend on actually arrive — a
+`recordKeyField` that never appears forms no edge and returns zero rows while reporting success, so
+"the call worked" is not the test.
+
+```bash
+DIFFBOT_TOKEN=... python3 scripts/probe-live.py            # all 16, a few hundred credits
+DIFFBOT_TOKEN=... python3 scripts/probe-live.py orgsById   # or one
+```
+
+Last full sweep 2026-08-14: **16/16 producers healthy**, every projected field present.
 
 ### Views
 

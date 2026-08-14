@@ -143,16 +143,20 @@
   description: |
     People who sit on the boards of BOTH of two companies.
 
-    Only ONE company's people are fetched. The other is tested against each person's own employment
-    history (`employerIds`), which the record already carries — so the intersection is exact on that
-    side rather than limited to whoever happened to fall inside one page. Pass the smaller or
-    better-covered company as `ask`.
+    Only ONE company's people are fetched; the other is tested against each person's own employment
+    history, which the record already carries. So the intersection is exact on that side rather than
+    limited to whoever fell inside one page, and it costs one fetch instead of two.
 
-    A BOARD SEAT IS NOT ANY TITLE CONTAINING "Director". Matching that substring catches "Director of
-    Technical Operations" and "Director of Information Security Assurance" — every middle manager in
-    the company — which is why this asks for a title containing "Board", or one ENDING in "Director"
-    (Non-Executive Director, Lead Independent Director) while excluding "Managing Director", which is
-    an executive role almost everywhere.
+    IT MATCHES ON NAME, NOT ON ENTITY ID, and that is deliberate. Diffbot's ids are not canonical
+    across access paths: an employment reference to Google carries EUFq-3WlpNsq0pvfUYWXOEA while
+    `enhance(url=google.com)` returns EkUDBjismNf-8fUxNwfOCBw — the same company, two records. An
+    id-equality test between the two therefore matches nothing and says so silently. A further 12%
+    of employment references carry no id at all. Names are what references reliably carry.
+
+    A BOARD SEAT IS NOT ANY TITLE CONTAINING "Director". That substring catches "Director of
+    Technical Operations" and every other middle manager, so this wants a title containing "Board",
+    or one ENDING in "Director" (Non-Executive, Lead Independent) while excluding "Managing
+    Director", which is an executive role almost everywhere.
   params:
     ask:
       type: string
@@ -161,12 +165,11 @@
     otherCompany:
       type: string
       default: "Google"
-      description: "Name of the company tested against each person's employment history."
+      description: "Name matched against each person's employment history. Substring, case-insensitive — 'Google' also catches 'Google DeepMind'."
   cypher: |
-    MATCH (:DiffbotCompany {name: $otherCompany})-[:RESOLVED_TO]->(b:DiffbotOrganization)
     MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(a:DiffbotOrganization)
     MATCH (a)-[:EMPLOYS]->(p:DiffbotPerson)
-    WHERE b.diffbotId IN p.employerIds
+    WHERE ANY(n IN p.employerNames WHERE toLower(n) CONTAINS toLower($otherCompany))
       AND ANY(t IN p.titles WHERE
                 t CONTAINS 'Board'
                 OR (t ENDS WITH 'Director' AND NOT t CONTAINS 'Managing'))
@@ -174,7 +177,7 @@
                t CONTAINS 'Board'
                OR (t ENDS WITH 'Director' AND NOT t CONTAINS 'Managing')] AS directorships
     RETURN p.name AS person,
-           directorships,
+           directorships[0..4] AS directorships,
            p.employerNames AS everywhereTheySit,
            p.linkedInUri AS profile
     ORDER BY size(p.employerNames) DESC
