@@ -111,6 +111,12 @@
     currentTitle: employments.0.title
     currentEmployerId: employments.0.employer.targetDiffbotId
     currentEmployerName: employments.0.employer.name
+    # The whole career, flattened. `[*]` lifts an array into a top-level LIST property, which is what
+    # makes a career graph possible: employerIds keys a per-element join, so one person node fans out
+    # to every company they have worked for instead of only the most recent.
+    employerIds: employments[*].employer.targetDiffbotId
+    employerNames: employments[*].employer.name
+    titles: employments[*].title
     city: location.city.name
     region: location.region.name
     country: location.country.name
@@ -223,6 +229,12 @@
     currentTitle: employments.0.title
     currentEmployerId: employments.0.employer.targetDiffbotId
     currentEmployerName: employments.0.employer.name
+    # The whole career, flattened. `[*]` lifts an array into a top-level LIST property, which is what
+    # makes a career graph possible: employerIds keys a per-element join, so one person node fans out
+    # to every company they have worked for instead of only the most recent.
+    employerIds: employments[*].employer.targetDiffbotId
+    employerNames: employments[*].employer.name
+    titles: employments[*].title
     city: location.city.name
     region: location.region.name
     country: location.country.name
@@ -409,6 +421,12 @@
     currentTitle: employments.0.title
     currentEmployerId: employments.0.employer.targetDiffbotId
     currentEmployerName: employments.0.employer.name
+    # The whole career, flattened. `[*]` lifts an array into a top-level LIST property, which is what
+    # makes a career graph possible: employerIds keys a per-element join, so one person node fans out
+    # to every company they have worked for instead of only the most recent.
+    employerIds: employments[*].employer.targetDiffbotId
+    employerNames: employments[*].employer.name
+    titles: employments[*].title
     city: location.city.name
     region: location.region.name
     country: location.country.name
@@ -530,12 +548,58 @@
     city: locations.0.city.name
     country: locations.0.country.name
     description: description
+    # Diffbot resolves each required skill to its own KG entity; the names are what a reader wants.
+    skills: skills[*].name
     diffbotUri: diffbotUri
   cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
   cost:
     bucket: diffbot
     rate: "5/sec"
     yield: medium
+
+# PAST employees. `isCurrent:false` asks Diffbot for anyone holding a NON-current employment record
+# at the company — which is NOT the same as "left". Someone promoted internally has an old role at
+# the same employer, so Tim Cook comes back as an Apple alum. The honest alumni set is this MINUS the
+# current staff, and that subtraction is a graph-side NOT EXISTS over the EMPLOYS edge — one of the
+# clearest cases where composing two source queries beats either one alone, because Diffbot cannot
+# express the difference at all.
+- name: alumniByEmployer
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Person employments.{employer.id:or({keys}) isCurrent:false}"
+    size: 50
+  keyTemplate: '"{key}"'
+  keyJoin: ","
+  echoKeyAs: matchedFor
+  batchSafe: false
+  records: "$.data[*].entity"
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    importance: importance
+    nbOrigins: nbOrigins
+    currentTitle: employments.0.title
+    currentEmployerId: employments.0.employer.targetDiffbotId
+    currentEmployerName: employments.0.employer.name
+    employerIds: employments[*].employer.targetDiffbotId
+    employerNames: employments[*].employer.name
+    titles: employments[*].title
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    linkedInUri: linkedInUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    crunchbaseUri: crunchbaseUri
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: low
 
 # ---------------------------------------------------------------------------------------------
 # Free-text search — a question, rewritten into DQL.
@@ -674,6 +738,12 @@
     currentTitle: employments.0.title
     currentEmployerId: employments.0.employer.targetDiffbotId
     currentEmployerName: employments.0.employer.name
+    # The whole career, flattened. `[*]` lifts an array into a top-level LIST property, which is what
+    # makes a career graph possible: employerIds keys a per-element join, so one person node fans out
+    # to every company they have worked for instead of only the most recent.
+    employerIds: employments[*].employer.targetDiffbotId
+    employerNames: employments[*].employer.name
+    titles: employments[*].title
     city: location.city.name
     region: location.region.name
     country: location.country.name
@@ -687,3 +757,206 @@
     bucket: diffbot
     rate: "5/sec"
     yield: medium
+
+# ---------------------------------------------------------------------------------------------
+# Film. Diffbot's `Movie` type is not in its published ontology list, but DQL answers it — 2.5M
+# entities carrying directors, cast with character names, writers, genres, production companies,
+# release date, IMDb link and Wikipedia pageview trend.
+# ---------------------------------------------------------------------------------------------
+
+# Resolve a company by NAME, precisely. Not a DQL name search: `type:Organization name:"Warner Bros.
+# Entertainment"` returns 127 hits including Telepictures and WBSL, and since the join links every
+# returned record to the anchor, that would attribute a film to whichever unrelated company shared a
+# word. Enhance SCORES candidates and returns the single best above a threshold — which is the entity
+# resolution problem, not a search problem.
+- name: orgEnhanceByName
+  kind: remote
+  operation: enhance
+  keyArg: name
+  echoKeyAs: matchedFor
+  args:
+    type: Organization
+    threshold: 0.75
+  records: "$.data[*].entity"
+  project:
+    diffbotId: id
+    name: name
+    homepageUri: homepageUri
+    summary: summary
+    nbEmployees: nbEmployees
+    revenue: revenue.value
+    revenueCurrency: revenue.currency
+    foundingDate: foundingDate.str
+    foundingDateTimestamp: foundingDate.timestamp
+    isPublic: isPublic
+    isAcquired: isAcquired
+    isDissolved: isDissolved
+    isNonProfit: isNonProfit
+    importance: importance
+    nbOrigins: nbOrigins
+    industries: industries
+    descriptors: descriptors
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    parentCompanyId: parentCompany.targetDiffbotId
+    parentCompanyName: parentCompany.name
+    ultimateParentId: ultimateParent.targetDiffbotId
+    ultimateParentName: ultimateParent.name
+    acquiredById: acquiredBy.targetDiffbotId
+    acquiredByName: acquiredBy.name
+    ceoId: ceo.targetDiffbotId
+    ceoName: ceo.name
+    stockSymbol: stock.symbol
+    stockExchange: stock.exchange
+    capitalization: capitalization.value
+    linkedInUri: linkedInUri
+    crunchbaseUri: crunchbaseUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium
+
+# Same reasoning for people. A film's directors and cast arrive as bare names — Diffbot does not
+# resolve them to entity ids the way it resolves parentCompany — so the only honest way across is a
+# scored match, with a threshold that prefers no answer to the wrong human.
+- name: personEnhanceByName
+  kind: remote
+  operation: enhance
+  keyArg: name
+  echoKeyAs: matchedFor
+  args:
+    type: Person
+    threshold: 0.75
+  records: "$.data[*].entity"
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    importance: importance
+    nbOrigins: nbOrigins
+    currentTitle: employments.0.title
+    currentEmployerId: employments.0.employer.targetDiffbotId
+    currentEmployerName: employments.0.employer.name
+    employerIds: employments[*].employer.targetDiffbotId
+    employerNames: employments[*].employer.name
+    titles: employments[*].title
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    linkedInUri: linkedInUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    crunchbaseUri: crunchbaseUri
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium
+
+- name: moviesByAsk
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "{keys}"
+    size: 50
+  keyTemplate: "{key}"
+  echoKeyAs: matchedFor
+  keyTransform:
+    kind: ai
+    instruction: |
+      Rewrite the request as a single Diffbot Query Language expression over films.
+
+      Rules:
+      - Always start with `type:Movie`.
+      - Reference fields hold NAMES, not ids: directors.name, writers.name,
+        castmembers.castmember.name, productionCompanies.name.
+      - genres, languages and countryOfOrigin are plain string lists.
+      - Dates compare as ISO strings, e.g. releaseDate>"1999-01-01".
+      - Use or("a","b") for alternatives and not(...) for exclusions. Quote string values.
+      - Return the expression only — no commentary, no surrounding quotes.
+    examples:
+      - input: "cyberpunk films after 1990"
+        output: 'type:Movie genres:"cyberpunk" releaseDate>"1990-01-01"'
+      - input: "films directed by Lana Wachowski"
+        output: 'type:Movie directors.name:"Lana Wachowski"'
+      - input: "Australian science fiction films"
+        output: 'type:Movie countryOfOrigin:"Australia" genres:"science fiction film"'
+      - input: "films with Laurence Fishburne that are not sequels"
+        output: 'type:Movie castmembers.castmember.name:"Laurence Fishburne" not(name:"Reloaded")'
+    cacheSeconds: 604800
+  records: "$.data[*].entity"
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    releaseDate: releaseDate.str
+    releaseDateTimestamp: releaseDate.timestamp
+    genres: genres
+    languages: languages
+    countryOfOrigin: countryOfOrigin
+    directorNames: directors[*].name
+    writerNames: writers[*].name
+    castNames: castmembers[*].castmember.name
+    characterNames: castmembers[*].characterName
+    productionCompanyNames: productionCompanies[*].name
+    imdbUri: imdbUri
+    importance: importance
+    nbOrigins: nbOrigins
+    wikipediaPageviews: wikipediaPageviews
+    wikipediaPageviewsLastYear: wikipediaPageviewsLastYear
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium
+
+# The CROSS-REALM bridge: realm-movie holds films the user has rated, keyed by IMDb id, and Diffbot
+# carries the same id as `imdbUri`. That one shared key is what lets a personal ratings list reach a
+# corporate ownership graph.
+- name: moviesByImdbId
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Movie {keys}"
+    size: 5
+  keyTemplate: 'imdbUri:"imdb.com/title/{key}"'
+  keyJoin: " OR "
+  echoKeyAs: matchedFor
+  batchSafe: false
+  records: "$.data[*].entity"
+  # Written out in full: YAML anchors resolve here but not in the host's Jackson parser.
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    releaseDate: releaseDate.str
+    releaseDateTimestamp: releaseDate.timestamp
+    genres: genres
+    languages: languages
+    countryOfOrigin: countryOfOrigin
+    directorNames: directors[*].name
+    writerNames: writers[*].name
+    castNames: castmembers[*].castmember.name
+    characterNames: castmembers[*].characterName
+    productionCompanyNames: productionCompanies[*].name
+    imdbUri: imdbUri
+    importance: importance
+    nbOrigins: nbOrigins
+    wikipediaPageviews: wikipediaPageviews
+    wikipediaPageviewsLastYear: wikipediaPageviewsLastYear
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 2592000, negativeTtlSeconds: 604800 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: high

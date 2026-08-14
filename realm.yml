@@ -26,15 +26,32 @@ exports:
   - DiffbotPerson
   - DiffbotArticle
   - DiffbotJobPost
+  - DiffbotMovie
   - DiffbotOrgSearch
   - DiffbotPersonSearch
+  - DiffbotMovieSearch
+  - CompanyProfile
+  - CompanySearch
   - CompanyOwnership
   - GroupRollup
+  - SiblingCompanies
+  - WhoOwnsThisMarket
+  - BoardInterlocks
+  - TalentFlow
+  - CompetitorHiring
+  - SkillDemand
+  - PeopleSearch
   - ContactCompanyProfiles
+  - HiddenCommonOwner
+  - QuietlyAbsorbed
   - ContactCompanyNews
+  - ExecutiveExposure
   - HiringSignals
-  - CompanySearch
-  - CompanyProfile
+  - MovieSearch
+  - FilmOwnership
+  - DirectorFilmography
+  - FilmCast
+  - MyFilmsByOwner
 
 # Diffbot returns 429 under burst rather than queueing, and an ownership walk fans out across
 # several sequential hops inside one budget — so a hop that loses to a rate limit would truncate the

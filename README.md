@@ -88,6 +88,22 @@ as an `apiKey in: query`, and the host injects it.
 | `(:DiffbotPerson)-[:WORKS_AT]->` | one hop | current employer |
 | `-[:MENTIONED_IN]->(:DiffbotArticle)` | reverse | `tags.uri:or(…)`, with date/sentiment pushdown |
 | `-[:IS_HIRING_FOR]->(:DiffbotJobPost)` | reverse | `employer.id:or(…)`, with date/remote pushdown |
+| `-[:FORMERLY_EMPLOYED]->(:DiffbotPerson)` | reverse | `isCurrent:false` — see the caveat below |
+| `(:DiffbotPerson)-[:CAREER_AT]->` | per-element | every employer in a person's history, from the `employerIds` list |
+| `(:DiffbotMovie)-[:PRODUCED_BY]->` | per-element | production company names, resolved by scored `enhance` match |
+| `(:DiffbotMovie)-[:DIRECTED_BY]->(:DiffbotPerson)` | per-element | director names, same scored match |
+| `(:Movie)-[:HAS_DIFFBOT_MOVIE]->(:DiffbotMovie)` | cross-realm | IMDb id shared with realm-movie |
+
+**`FORMERLY_EMPLOYED` is not "left the company".** Diffbot's `isCurrent:false` returns anyone holding
+a non-current employment record there, so someone promoted internally comes back as their own
+company's alum — Tim Cook is an Apple alum by this filter. The honest set is this edge MINUS
+`EMPLOYS`, which is what `TalentFlow` does, and it is a set difference Diffbot cannot express.
+
+**A film's people and companies arrive as NAMES, not ids.** Diffbot resolves `parentCompany` to an
+entity id but not a film's `directors` or `productionCompanies`. Those hops therefore go through
+`enhance` with a 0.75 threshold rather than a DQL name search — `type:Organization name:"Warner Bros.
+Entertainment"` returns 127 hits including Telepictures, and since a join links every returned record
+to its anchor, that would attribute a film to whichever company shared a word.
 
 Almost every hop keys on **our own bound node's `diffbotId`** and runs as a reverse lookup. That is
 deliberate: a reverse lookup batches (`or()` takes many ids in one call) and needs no list-valued
@@ -106,8 +122,54 @@ python3 scripts/check-wiring.py
 
 ### Views
 
-`CompanyOwnership`, `GroupRollup`, `ContactCompanyProfiles`, `ContactCompanyNews`, `HiringSignals`,
-`CompanySearch`, `CompanyProfile` — see [`views/diffbot.yml`](views/diffbot.yml).
+22 saved views in [`views/diffbot.yml`](views/diffbot.yml), all exported so they run by name.
+
+**Start from a name or a market**
+
+| View | Answers |
+|---|---|
+| `CompanySearch` / `CompanyProfile` / `PeopleSearch` | plain language → DQL → entities |
+| `CompanyOwnership` | who ultimately owns this, level by level |
+| `GroupRollup` | a group's scale, summed over the subsidiary tree |
+| `SiblingCompanies` | who else sits under the same owner as a company you deal with |
+| `WhoOwnsThisMarket` | search a sector, then walk every result to its ultimate owner |
+| `BoardInterlocks` | people on the boards of BOTH of two companies |
+| `TalentFlow` | where a company's leavers actually went |
+| `CompetitorHiring` | what the competitive set is staffing up for, with skills |
+| `SkillDemand` | what capability a whole market is buying, counted by skill |
+
+**Anchored in your own graph** — the ones Diffbot could not run at any price, because the starting
+point is who has emailed you
+
+| View | Answers |
+|---|---|
+| `ContactCompanyProfiles` | every company your correspondents work for, enriched |
+| `HiddenCommonOwner` | two companies in YOUR world that quietly share an owner |
+| `QuietlyAbsorbed` | companies in your world acquired or dissolved without you noticing |
+| `ContactCompanyNews` | recent negative-toned coverage of your accounts |
+| `ExecutiveExposure` | press about the executives leading them, personally |
+| `HiringSignals` | what your accounts are advertising for |
+
+**Film** — `Movie` is absent from Diffbot's published ontology but real: ~2.5M entities with
+directors, cast and character names, writers, genres, production companies, IMDb link and a
+Wikipedia pageview trend. It earns a place here because a film's production companies are
+organizations, so the catalogue opens directly into the ownership graph.
+
+| View | Answers |
+|---|---|
+| `MovieSearch` / `DirectorFilmography` / `FilmCast` | films, filmographies, actor↔character credits |
+| `FilmOwnership` | who ultimately owns the studios behind a set of films |
+| `MyFilmsByOwner` | the films YOU rated, grouped by who owns the studio (needs realm-movie) |
+
+`MyFilmsByOwner` is the one that needs three worlds to agree — your own ratings, Diffbot's film
+catalogue, and its corporate ownership graph — joined on an IMDb id and a company name.
+
+### Requires realm-movie (optional)
+
+`(:Movie)-[:HAS_DIFFBOT_MOVIE]->(:DiffbotMovie)` anchors on realm-movie's `Movie` type, keyed on the
+`imdbId` both sides already hold. There is no realm dependency mechanism, so this is a documented
+requirement rather than an enforced one. Without realm-movie installed the join resolves to nothing
+and everything else here still works — a smaller answer, not a wrong one.
 
 ## Cost
 

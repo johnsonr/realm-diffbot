@@ -68,6 +68,7 @@
     city: "City of the first listed location."
     country: "Country of the first listed location."
     description: "Full posting text."
+    skills: { cardinality: LIST, description: "Skills the posting requires, as Diffbot's resolved skill entities. The capability a company is buying, which is a sharper signal than the job title." }
     diffbotUri: "Canonical Diffbot entity URI."
 
   virtualJoins:

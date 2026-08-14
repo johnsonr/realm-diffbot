@@ -24,6 +24,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Labels the host supplies. A join may anchor on these without this realm declaring them.
 CORE_LABELS = {"AssistantUser", "Person", "Organization"}
 
+# Labels ANOTHER realm owns. Anchoring on one is legitimate — the engine keeps every declared edge
+# into a type, including edges declared elsewhere — but the join yields nothing unless that realm is
+# installed, so each entry here must be a documented requirement in README.md.
+EXTERNAL_LABELS = {"Movie"}
+
 
 def load(pattern):
     for path in sorted(glob.glob(os.path.join(ROOT, pattern))):
@@ -74,7 +79,7 @@ def main():
 
             # The anchor must be able to supply the key.
             anchor = join["anchorLabel"]
-            if anchor not in CORE_LABELS:
+            if anchor not in CORE_LABELS and anchor not in EXTERNAL_LABELS:
                 anchor_type = types.get(anchor)
                 if anchor_type is None:
                     problems.append(f"{where}: anchorLabel '{anchor}' is not a declared type")

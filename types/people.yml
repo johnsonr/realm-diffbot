@@ -26,6 +26,9 @@
     currentTitle: "Title of the most recent employment Diffbot lists."
     currentEmployerId: "Diffbot id of the current employer — the key WORKS_AT follows."
     currentEmployerName: "Current employer name, present without following the hop."
+    employerIds: { cardinality: LIST, description: "Diffbot id of EVERY employer in this person's history, current and past. The key CAREER_AT fans out on." }
+    employerNames: { cardinality: LIST, description: "Every employer name, in the same order as employerIds." }
+    titles: { cardinality: LIST, description: "Every job title held, in the same order as employerIds. A board seat is recorded as an employment, so a title containing 'Board' or 'Director' is how a directorship shows up." }
     city: "City of the primary location."
     region: "State or region of the primary location."
     country: "Country of the primary location."
@@ -77,6 +80,28 @@
       producer: peopleByEmployer
       maxAnchors: 10
       maxFanoutTotal: 200
+
+    # PAST employees — see the producer for why this is not the same as "left the company".
+    # The honest alumni set is this edge MINUS the EMPLOYS edge:
+    #   MATCH (o)-[:FORMERLY_EMPLOYED]->(p) WHERE NOT (o)-[:EMPLOYS]->(p)
+    - anchorLabel: DiffbotOrganization
+      relationship: FORMERLY_EMPLOYED
+      keyField: diffbotId
+      recordKeyField: matchedFor
+      producer: alumniByEmployer
+      maxAnchors: 10
+      maxFanoutTotal: 200
+
+    # A film's directors, resolved by scored name match. Cast is deliberately NOT joined: a feature
+    # film has dozens of cast members, each costing its own scored lookup, and castNames /
+    # characterNames already read as a cast list without any of them.
+    - anchorLabel: DiffbotMovie
+      relationship: DIRECTED_BY
+      keyField: directorNames
+      recordKeyField: matchedFor
+      producer: personEnhanceByName
+      maxAnchors: 25
+      maxFanoutTotal: 50
 
     # People search with no graph anchor, seeded from the question:
     #   MATCH (:DiffbotPersonSearch {ask:'CTOs in Melbourne'})-[:MATCHED]->(p) RETURN p.name

@@ -1,0 +1,76 @@
+# Film.
+#
+# Diffbot's `Movie` type does not appear in its published ontology list, but DQL answers it and there
+# are ~2.5 million of them, carrying directors, cast with character names, writers, genres,
+# production companies, release date, IMDb link and a Wikipedia pageview trend.
+#
+# The reason it earns a place in THIS realm rather than in a film realm: a film's production
+# companies are organizations, and organizations are where the ownership graph lives. So
+#
+#   MATCH (:DiffbotMovieSearch {ask:'cyberpunk films after 1990'})-[:MATCHED]->(f)
+#   MATCH (f)-[:PRODUCED_BY]->(studio)-[:PARENT_COMPANY*1..4]->(owner)
+#
+# answers "who actually owns the people who made this" — three sources' worth of question, one query.
+
+- name: DiffbotMovie
+  userAnchor: false
+  description: |
+    A film as the Diffbot Knowledge Graph holds it, materialized transiently.
+
+    Its people and companies arrive as NAMES, not entity ids — Diffbot resolves `parentCompany` to an
+    id but not a film's `directors`. Crossing to a Person or Organization therefore goes through a
+    scored name match, which can miss and can occasionally land on a different entity with the same
+    name. Treat a resolved studio or director as a good guess, not a fact, and check `nbOrigins`.
+  properties:
+    diffbotId: { identity: true, description: "Stable Diffbot entity id." }
+    name: "Film title."
+    summary: "One-line description, e.g. '1999 American science fiction action thriller film'."
+    description: "Longer description, when present."
+    releaseDate: "Release date in Diffbot's own textual form, carrying a leading `d`. DISPLAY ONLY."
+    releaseDateTimestamp: { type: int, description: "Release date as epoch milliseconds. Filter on this." }
+    genres: { cardinality: LIST, description: "Diffbot's genre labels — fine-grained and overlapping ('cyberpunk', 'action thriller', 'film noir' can all apply to one film)." }
+    languages: { cardinality: LIST, description: "Languages of the film." }
+    countryOfOrigin: { cardinality: LIST, description: "Producing countries." }
+    directorNames: { cardinality: LIST, description: "Director names. The key DIRECTED_BY resolves on." }
+    writerNames: { cardinality: LIST, description: "Writer names." }
+    castNames: { cardinality: LIST, description: "Cast member names, positionally aligned with characterNames." }
+    characterNames: { cardinality: LIST, description: "Characters played, in the same order as castNames — so the pair reads as a cast list." }
+    productionCompanyNames: { cardinality: LIST, description: "Production company names. The key PRODUCED_BY resolves on, and the doorway into the ownership graph." }
+    imdbUri: "IMDb link in Diffbot's bare form, `imdb.com/title/tt0133093`. The shared key with realm-movie."
+    importance: { type: float, description: "Diffbot's prominence score — comparative only." }
+    nbOrigins: { type: int, description: "Sources fused into this record. The coverage signal." }
+    wikipediaPageviews: { type: int, description: "Total Wikipedia pageviews — a durable proxy for cultural footprint." }
+    wikipediaPageviewsLastYear: { type: int, description: "Pageviews over the last year. Against the total, this separates an enduring film from a currently-talked-about one." }
+    diffbotUri: "Canonical Diffbot entity URI."
+    matchedFor: "The question or IMDb id this record was fetched for, echoed so the join matches what was asked."
+
+  virtualJoins:
+    - anchorLabel: DiffbotMovieSearch
+      relationship: MATCHED
+      keyField: ask
+      recordKeyField: matchedFor
+      producer: moviesByAsk
+      maxAnchors: 4
+      maxFanoutTotal: 200
+
+    # CROSS-REALM. `Movie` is realm-movie's type — the films the user has actually rated — and
+    # `imdbId` is the key both sides already hold. REQUIRES realm-movie to be installed; without it
+    # this join resolves to nothing and every other query here still works, which is a smaller
+    # answer rather than a wrong one.
+    - anchorLabel: Movie
+      relationship: HAS_DIFFBOT_MOVIE
+      keyField: imdbId
+      recordKeyField: matchedFor
+      producer: moviesByImdbId
+      maxAnchors: 25
+      maxFanoutTotal: 50
+
+- name: DiffbotMovieSearch
+  userAnchor: false
+  description: |
+    A film search against the Diffbot Knowledge Graph, seeded from the question itself. Traverse
+    MATCHED to run it. Capped at 50 results — a sample of the index, not a filmography.
+  properties:
+    ask:
+      identity: true
+      description: "The question, in plain language. Rewritten into DQL at fetch time."

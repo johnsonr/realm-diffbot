@@ -152,6 +152,32 @@
       maxAnchors: 10
       maxFanoutTotal: 100
 
+    # A film's production companies, resolved by scored name match. This is the hop that connects
+    # the film catalogue to the ownership graph: once a studio is a real DiffbotOrganization, every
+    # PARENT_COMPANY / SUBSIDIARY_OF / ACQUIRED_BY hop above is available from it.
+    #
+    # productionCompanyNames is LIST-valued, so each studio becomes its own key and many films
+    # naming the same studio converge on one node — which is what makes counting possible.
+    - anchorLabel: DiffbotMovie
+      relationship: PRODUCED_BY
+      keyField: productionCompanyNames
+      recordKeyField: matchedFor
+      producer: orgEnhanceByName
+      maxAnchors: 50
+      maxFanoutTotal: 150
+
+    # EVERY company in a person's history, not just the current one — a per-element join over the
+    # employerIds LIST, so one person fans out to each employer and many people converge on one
+    # company node. That convergence is the point: it is what makes "where did this company's leavers
+    # go" a counting question rather than a reading exercise.
+    - anchorLabel: DiffbotPerson
+      relationship: CAREER_AT
+      keyField: employerIds
+      recordKeyField: diffbotId
+      producer: orgsById
+      maxAnchors: 50
+      maxFanoutTotal: 400
+
     # Where a person works, walked from the person into the company — so an inbox contact resolves
     # to a person, the person to an employer, and the employer up its ownership chain. Three hops,
     # none of which Diffbot can traverse.
