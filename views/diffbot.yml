@@ -476,19 +476,30 @@
 
 - name: FilmCast
   description: |
-    A film's cast as an actor/character list. `castNames` and `characterNames` are positionally
-    aligned, so zipping the two indexes gives the credits without a second fetch.
+    A film's cast as actor/character rows, from the HAS_CAST sub-graph brought with the film in the
+    same fetch — no extra calls.
+
+    Do NOT build this by zipping `castNames` against `characterNames`. A `[*]` projection drops
+    elements whose field is absent, so the two lists have different lengths whenever a role is
+    unrecorded — 31 against 20 on "The Odyssey" (2026), 4 against 0 on "Ultraman Tiga". Every pairing
+    after the first gap is wrong, and an index past the shorter list fails the query outright.
+
+    Scoped to ONE film: cast identity is the actor's name, so holding several films at once merges an
+    actor who appears in more than one.
   params:
     ask:
       type: string
-      default: "The Matrix"
+      default: "The Odyssey"
       description: "The film."
   cypher: |
     MATCH (:DiffbotMovieSearch {ask: $ask})-[:MATCHED]->(f:DiffbotMovie)
-    UNWIND range(0, size(f.castNames) - 1) AS i
+    WITH f ORDER BY f.wikipediaPageviews DESC LIMIT 1
+    MATCH (f)-[:HAS_CAST]->(c:DiffbotCastMember)
     RETURN f.name AS film,
-           f.castNames[i] AS actor,
-           f.characterNames[i] AS character
+           f.releaseDate AS released,
+           c.actorName AS actor,
+           c.character AS character
+    ORDER BY character IS NULL, actor
 
 # --- requires realm-movie -------------------------------------------------------------------------
 

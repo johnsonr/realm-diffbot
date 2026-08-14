@@ -33,8 +33,8 @@
     countryOfOrigin: { cardinality: LIST, description: "Producing countries." }
     directorNames: { cardinality: LIST, description: "Director names. The key DIRECTED_BY resolves on." }
     writerNames: { cardinality: LIST, description: "Writer names." }
-    castNames: { cardinality: LIST, description: "Cast member names, positionally aligned with characterNames." }
-    characterNames: { cardinality: LIST, description: "Characters played, in the same order as castNames — so the pair reads as a cast list." }
+    castNames: { cardinality: LIST, description: "Cast member names. NOT aligned with characterNames — traverse HAS_CAST for the actor/character pairing, never zip the two lists by index." }
+    characterNames: { cardinality: LIST, description: "Characters played, in source order but with gaps removed, so it is SHORTER than castNames whenever a role is unrecorded. Display only." }
     productionCompanyNames: { cardinality: LIST, description: "Production company names. The key PRODUCED_BY resolves on, and the doorway into the ownership graph." }
     imdbUri: "IMDb link in Diffbot's bare form, `imdb.com/title/tt0133093`. The shared key with realm-movie."
     importance: { type: float, description: "Diffbot's prominence score — comparative only." }
@@ -52,6 +52,24 @@
       producer: moviesByAsk
       maxAnchors: 4
       maxFanoutTotal: 200
+      brings:
+        # The cast as NODES, not as two parallel lists. `castNames` and `characterNames` are both
+        # projected for display, but they are NOT positionally aligned and must never be zipped:
+        # `[*]` drops elements whose field is absent, so a film with 31 cast members and 20 recorded
+        # characters yields lists of 31 and 20 — every pairing after the first gap is wrong, and an
+        # index past the shorter list fails the query outright. Measured on "The Odyssey" (2026):
+        # 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
+        #
+        # A brought child keeps the actor and the character on ONE record, where they belong.
+        - childType: DiffbotCastMember
+          relationship: HAS_CAST
+          records: "$.castmembers[*]"
+          id: actorName
+          project:
+            actorName: castmember.name
+            character: characterName
+            characterLink: characterLink
+
 
     # CROSS-REALM. `Movie` is realm-movie's type — the films the user has actually rated — and
     # `imdbId` is the key both sides already hold. REQUIRES realm-movie to be installed; without it
@@ -64,6 +82,24 @@
       producer: moviesByImdbId
       maxAnchors: 25
       maxFanoutTotal: 50
+      brings:
+        # The cast as NODES, not as two parallel lists. `castNames` and `characterNames` are both
+        # projected for display, but they are NOT positionally aligned and must never be zipped:
+        # `[*]` drops elements whose field is absent, so a film with 31 cast members and 20 recorded
+        # characters yields lists of 31 and 20 — every pairing after the first gap is wrong, and an
+        # index past the shorter list fails the query outright. Measured on "The Odyssey" (2026):
+        # 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
+        #
+        # A brought child keeps the actor and the character on ONE record, where they belong.
+        - childType: DiffbotCastMember
+          relationship: HAS_CAST
+          records: "$.castmembers[*]"
+          id: actorName
+          project:
+            actorName: castmember.name
+            character: characterName
+            characterLink: characterLink
+
 
 - name: DiffbotMovieSearch
   userAnchor: false
@@ -74,3 +110,19 @@
     ask:
       identity: true
       description: "The question, in plain language. Rewritten into DQL at fetch time."
+
+- name: DiffbotCastMember
+  userAnchor: false
+  description: |
+    One actor's role in a film — the actor and the character they played, kept on a single record.
+
+    Brought with the film in the same fetch rather than resolved separately, so a cast list costs no
+    extra calls. Identity is the actor's name, so within one film each row is exact; a query holding
+    several films at once merges an actor appearing in more than one, and the `character` shown is
+    then only one of their roles. Scope cast queries to a film.
+  properties:
+    actorName:
+      identity: true
+      description: "The performer's name."
+    character: "The character played, when the source records one. Often absent — roughly a third of credits on a well-covered film."
+    characterLink: "External URI for the character, usually Wikidata, when present."
