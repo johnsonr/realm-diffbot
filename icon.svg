@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Diffbot realm">
+  <title>Diffbot realm</title>
+  <g fill="none" stroke="#2f6f4e" stroke-width="2.5" stroke-linecap="round">
+    <path d="M32 14v12M32 26 18 40M32 26l14 14M18 40v8M46 40v8"/>
+  </g>
+  <g fill="#2f6f4e">
+    <circle cx="32" cy="12" r="5"/>
+    <circle cx="18" cy="40" r="4.5"/>
+    <circle cx="46" cy="40" r="4.5"/>
+  </g>
+  <g fill="#8fbfa4">
+    <circle cx="18" cy="52" r="3.5"/>
+    <circle cx="46" cy="52" r="3.5"/>
+  </g>
+</svg>

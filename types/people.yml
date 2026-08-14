@@ -1,0 +1,99 @@
+# People, and the edges between people and companies.
+#
+# The Person bridge is the one that turns Diffbot from a company database into something that
+# answers questions about the user's own world: the anchor is a Person in their graph, put there by
+# correspondence, and the fetch reaches the public record of that same human.
+
+- name: DiffbotPerson
+  userAnchor: false
+  description: |
+    A person as the Diffbot Knowledge Graph currently holds them — public professional record only,
+    fused from web sources and materialized transiently.
+
+    Coverage is extremely uneven and skewed toward people with a public professional footprint: a
+    software executive is well covered, a plumber is not there at all. An absent record means
+    "Diffbot has not indexed this person", never "this person does not exist" — and a low nbOrigins
+    means the record rests on one or two pages.
+  properties:
+    diffbotId:
+      identity: true
+      description: "Stable Diffbot entity id."
+    name: "Name as Diffbot canonicalizes it."
+    summary: "Short description Diffbot composed from its sources."
+    description: "Longer description, when present."
+    importance: { type: float, description: "Diffbot's prominence score — comparative only." }
+    nbOrigins: { type: int, description: "Distinct sources fused into this record. The coverage signal." }
+    currentTitle: "Title of the most recent employment Diffbot lists."
+    currentEmployerId: "Diffbot id of the current employer — the key WORKS_AT follows."
+    currentEmployerName: "Current employer name, present without following the hop."
+    city: "City of the primary location."
+    region: "State or region of the primary location."
+    country: "Country of the primary location."
+    linkedInUri: "LinkedIn profile."
+    githubUri: "GitHub profile."
+    twitterUri: "X/Twitter profile."
+    crunchbaseUri: "Crunchbase profile."
+    diffbotUri: "Canonical https://diffbot.com/entity/<id> URI."
+    matchedFor: "What this record was fetched for — an email, a question, or an employer's id — echoed by the producer so the join matches what was asked rather than what came back."
+
+  virtualJoins:
+    # Person is a CORE label, so this attaches to the address book itself. Email first, for the same
+    # reason the Organization bridge uses domain: it identifies. canonicalEmail reads the whole
+    # email set the host holds for a person — work, personal, aliases — so a match on any one of
+    # them resolves the bridge, rather than only whichever address happens to be primary.
+    - anchorLabel: Person
+      relationship: HAS_DIFFBOT_PERSON
+      keyField: primaryEmail
+      recordKeyField: matchedFor
+      producer: personEnhanceByEmail
+      writeThrough: true
+      refreshAfter: 90d
+      resolve:
+        - existingBridge
+        - learnedHandle: { property: diffbotId, as: diffbotId }
+        - canonicalEmail: { producer: personEnhanceByEmail }
+      maxAnchors: 50
+
+    # NOTE: WORKS_AT targets DiffbotOrganization, so it is declared in types/organizations.yml —
+    # a join belongs to the type it materializes, not to the type it starts from.
+
+    # The company's CEO. Declared on the person type because the target is a person; the key comes
+    # off the organization anchor.
+    - anchorLabel: DiffbotOrganization
+      relationship: LED_BY
+      keyField: ceoId
+      recordKeyField: diffbotId
+      producer: peopleById
+      maxAnchors: 50
+      maxFanoutTotal: 50
+
+    # Publicly visible current employees. A ROUTE INTO a company, never a headcount: this counts
+    # Diffbot's coverage of the staff, not the staff. `nbEmployees` on the organization is the
+    # headcount, and the gap between the two is usually enormous.
+    - anchorLabel: DiffbotOrganization
+      relationship: EMPLOYS
+      keyField: diffbotId
+      recordKeyField: matchedFor
+      producer: peopleByEmployer
+      maxAnchors: 10
+      maxFanoutTotal: 200
+
+    # People search with no graph anchor, seeded from the question:
+    #   MATCH (:DiffbotPersonSearch {ask:'CTOs in Melbourne'})-[:MATCHED]->(p) RETURN p.name
+    - anchorLabel: DiffbotPersonSearch
+      relationship: MATCHED
+      keyField: ask
+      recordKeyField: matchedFor
+      producer: peopleByAsk
+      maxAnchors: 4
+      maxFanoutTotal: 200
+
+- name: DiffbotPersonSearch
+  userAnchor: false
+  description: |
+    A people search against the Diffbot Knowledge Graph, seeded from the question itself. Traverse
+    MATCHED to run it. Covers the public professional record only, capped at 50 results per search.
+  properties:
+    ask:
+      identity: true
+      description: "The question, in plain language. Rewritten into DQL at fetch time."

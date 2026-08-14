@@ -1,0 +1,453 @@
+# Producers over the Diffbot Knowledge Graph.
+#
+# ONE SHAPE RUNS THROUGH ALL OF THESE. Diffbot's cross-entity fields (parentCompany, ceo, employer,
+# competitors, tags) are resolved references carrying the target's id, and DQL can filter on those
+# ids — `type:Organization parentCompany.id:or("E1","E2")` is a legal query. What DQL cannot do is
+# FOLLOW them: there is no traversal, no join, no path. So every producer here is one flat,
+# id-keyed reverse lookup, and the traversal lives in the graph pattern the user writes.
+#
+# That is why almost every join keys on `diffbotId` — our own bound node's id — rather than on a
+# projected list of target ids. A reverse lookup batches (`or(...)` takes many ids in one call) and
+# needs no list projection; a forward list would need both. The two forward joins that remain
+# (parentCompany, ceo) key on single scalars Diffbot puts on the record itself.
+#
+# COST IS REAL. Diffbot bills per entity exported (~25 credits), not per call, so `size` is a
+# spending decision on every producer below. Each is capped at the endpoint's maximum of 50 and no
+# producer pages: a fetch returns at most 50 entities, and the response's own `hits` field reports
+# what the index actually matched. See KNOWN LIMITATIONS in README.md — this is the one place where
+# a wide question is answered narrowly, and it is declared rather than hidden.
+
+# ---------------------------------------------------------------------------------------------
+# Entity resolution — turning something we hold into a Diffbot identity.
+# ---------------------------------------------------------------------------------------------
+
+# The bridge producer for Organization. Enhance, not DQL: enhance is Diffbot's own scoring of
+# candidates against partial input, which is exactly the entity-resolution problem, and it returns
+# the best match rather than a list we would have to pick from ourselves.
+#
+# Keyed on DOMAIN because a domain identifies a company and a name does not — "Acme" matches dozens
+# of records across countries and industries, and picking the highest-scoring one silently attributes
+# another company's revenue, headcount and owner to yours. threshold keeps a weak match out
+# entirely: for a bridge that gets PERSISTED, a wrong link is worse than no link.
+- name: orgEnhanceByDomain
+  kind: remote
+  operation: enhance
+  keyArg: url
+  echoKeyAs: matchedFor        # enhance answers with the entity, not with what we asked — stamp it
+  args:
+    type: Organization
+    threshold: 0.7
+  records: "$.data[*].entity"
+  project: &orgProjection
+    diffbotId: id
+    name: name
+    homepageUri: homepageUri
+    summary: summary
+    nbEmployees: nbEmployees
+    nbEmployeesMin: nbEmployeesMin
+    nbEmployeesMax: nbEmployeesMax
+    revenue: revenue.value
+    revenueCurrency: revenue.currency
+    foundingDate: foundingDate.str
+    isPublic: isPublic
+    isAcquired: isAcquired
+    isDissolved: isDissolved
+    isNonProfit: isNonProfit
+    importance: importance
+    nbOrigins: nbOrigins
+    industries: industries
+    descriptors: descriptors
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    parentCompanyId: parentCompany.targetDiffbotId
+    parentCompanyName: parentCompany.name
+    ultimateParentId: ultimateParent.targetDiffbotId
+    ultimateParentName: ultimateParent.name
+    acquiredById: acquiredBy.targetDiffbotId
+    acquiredByName: acquiredBy.name
+    ceoId: ceo.targetDiffbotId
+    ceoName: ceo.name
+    stockSymbol: stock.0.symbol
+    linkedInUri: linkedInUri
+    crunchbaseUri: crunchbaseUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    diffbotUri: diffbotUri
+  cache:
+    kind: ttl
+    seconds: 2592000          # 30 days — a company's Diffbot identity is stable; its facts are not
+    # A domain Diffbot has never indexed stays unindexed for a while. Without this, every private
+    # company and every personal domain in the address book is re-asked on every query that walks
+    # the bridge — the exact anchors most likely to miss are the ones re-asked most.
+    negativeTtlSeconds: 604800
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: high
+
+# Person bridge. Email, for the same reason Organization uses domain: it identifies, a name does
+# not. Diffbot knows public professional email addresses; a personal address usually misses, which
+# is why the negative cache matters as much as the positive one.
+- name: personEnhanceByEmail
+  kind: remote
+  operation: enhance
+  keyArg: email
+  echoKeyAs: matchedFor
+  args:
+    type: Person
+    threshold: 0.7
+  records: "$.data[*].entity"
+  project: &personProjection
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    importance: importance
+    nbOrigins: nbOrigins
+    currentTitle: employments.0.title
+    currentEmployerId: employments.0.employer.targetDiffbotId
+    currentEmployerName: employments.0.employer.name
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    linkedInUri: linkedInUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    crunchbaseUri: crunchbaseUri
+    diffbotUri: diffbotUri
+  cache:
+    kind: ttl
+    seconds: 2592000
+    negativeTtlSeconds: 604800
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: high
+
+# ---------------------------------------------------------------------------------------------
+# Id lookups — the workhorses. Every structural hop lands here.
+# ---------------------------------------------------------------------------------------------
+
+# Batched by construction: `id:or("E1","E2",…)` is one call for many anchors, which is what keeps a
+# four-level ownership walk from being four-times-N calls. batchSafe stays at its default (true)
+# because an id query is not a ranked search — every requested id that exists comes back, so one
+# call IS complete per key and the starvation trap that forces per-key fetching elsewhere does not
+# apply here.
+- name: orgsById
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Organization id:or({keys})"
+    size: 50
+  keyTemplate: '"{key}"'
+  keyJoin: ","
+  maxKeysPerCall: 50          # the endpoint's own result ceiling — more ids than that cannot answer
+  records: "$.data[*].entity"
+  project: *orgProjection
+  cache:
+    kind: ttl
+    seconds: 86400
+    negativeTtlSeconds: 86400  # an id the graph does not hold stays unheld
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: high
+
+- name: peopleById
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Person id:or({keys})"
+    size: 50
+  keyTemplate: '"{key}"'
+  keyJoin: ","
+  maxKeysPerCall: 50
+  records: "$.data[*].entity"
+  project: *personProjection
+  cache:
+    kind: ttl
+    seconds: 86400
+    negativeTtlSeconds: 86400
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: high
+
+# ---------------------------------------------------------------------------------------------
+# Reverse lookups — the hops DQL can answer one level at a time, and we compose.
+# ---------------------------------------------------------------------------------------------
+
+# Children of a company. Keyed on the PARENT's id, so `(:DiffbotOrganization)<-[:SUBSIDIARY_OF]-`
+# resolves downward without any list field being projected. This is the direction Diffbot's own
+# docs demonstrate (`type:Organization parentCompany.id:or(...)` for the subsidiaries of several
+# companies at once), so it is the best-supported query in the realm.
+- name: orgsByParent
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Organization parentCompany.id:or({keys})"
+    size: 50
+  keyTemplate: '"{key}"'
+  keyJoin: ","
+  maxKeysPerCall: 25          # each parent can have many children; keep one call's 50-cap shared thin
+  records: "$.data[*].entity"
+  project: *orgProjection
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium
+
+# Companies that name this one as a competitor. NOT the same as the company's own `competitors`
+# list — this is the inbound view, and the two disagree often enough that conflating them would be
+# a claim we cannot support. Named COMPETES_WITH in the type and documented as inbound.
+- name: orgsByCompetitor
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Organization competitors.id:or({keys})"
+    size: 50
+  keyTemplate: '"{key}"'
+  keyJoin: ","
+  # Per-anchor, for the same reason articlesByEntity is: the records that come back are OTHER
+  # companies, and their own id identifies them rather than the anchor we searched for. Nothing in
+  # the response says which queried id a given competitor matched, so a batched call yields rows
+  # that cannot be linked back and the edge silently never forms. Echo the queried id instead.
+  echoKeyAs: matchedFor
+  batchSafe: false
+  records: "$.data[*].entity"
+  project: *orgProjection
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: low
+
+# Current employees of a company, as Diffbot knows them — which means the publicly visible ones,
+# skewed heavily toward people with a LinkedIn or a byline. Useful as a route into a company;
+# never a headcount. `nbEmployees` on the Organization is the headcount; counting these nodes is
+# counting Diffbot's coverage of a company, not its staff.
+- name: peopleByEmployer
+  kind: remote
+  operation: dqlSearch
+  args:
+    # Braces here are DQL's own subquery syntax, not template placeholders — only the named
+    # {keys} / {filters} slots are substituted.
+    query: "type:Person employments.{employer.id:or({keys}) isCurrent:true}"
+    size: 50
+  keyTemplate: '"{key}"'
+  keyJoin: ","
+  # Echoed rather than read back off the record. `currentEmployerId` is projected from
+  # `employments.0`, which is USUALLY the current role but is not guaranteed to be the one that
+  # matched — a person with two concurrent employments can come back with the wrong one first, and
+  # the join would then quietly drop them. Echoing the queried employer id makes the link exact.
+  echoKeyAs: matchedFor
+  batchSafe: false
+  records: "$.data[*].entity"
+  project: *personProjection
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: low
+
+# News mentioning an entity. Diffbot tags every article with the KG entities it mentions, and the
+# tag carries the entity's URI — so this is a genuine "articles about THIS company" rather than a
+# name search that would also return every unrelated company sharing the name.
+#
+# `date` and `sentiment` push down: the whole point of this join is usually a recent-and-negative
+# slice, and without pushdown that slice costs a full 50-article fetch to keep three.
+- name: articlesByEntity
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Article tags.uri:or({keys}) {filters} revSortBy:date"
+    size: 50
+  keyTemplate: '"https://diffbot.com/entity/{key}"'
+  keyJoin: ","
+  # ONE ANCHOR PER CALL, for two independent reasons that happen to agree.
+  #
+  # Correctness: an article record carries the entities it mentions as tags, but nothing in the
+  # response says WHICH of the ids we asked about matched it — so a batched call returns rows that
+  # cannot be mapped back to their anchor, the join edge never forms, and every row silently
+  # vanishes while the query reports success. echoKeyAs stamps the queried entity id onto each
+  # record, which is what recordKeyField matches on, and implies per-key calling.
+  #
+  # Completeness: a batched `tags.uri:or(...)` returns ONE date-ranked list capped at 50 across
+  # every company in the batch — a heavily covered company fills the cap and a quiet one falls off
+  # the end, so you would see its news for one question and find nothing for the next. batchSafe is
+  # declared explicitly even though echoKeyAs already implies it, so the reason survives an edit.
+  echoKeyAs: matchedFor
+  batchSafe: false
+  records: "$.data[*].entity"
+  pushdown:
+    # Correctness never depends on these — anything not pushed is still filtered graph-side, so the
+    # rows are identical and only the cost changes. The valuePatterns admit only Diffbot's own
+    # literal forms, so nothing user-shaped reaches the source as syntax.
+    - property: date
+      op: GREATER_THAN
+      qualifier: 'date>"{value}"'
+      valuePattern: '^(\d{4}-\d{2}-\d{2})'
+    - property: date
+      op: LESS_THAN
+      qualifier: 'date<"{value}"'
+      valuePattern: '^(\d{4}-\d{2}-\d{2})'
+    - property: sentiment
+      op: LESS_THAN
+      qualifier: "sentiment<{value}"
+      valuePattern: '^(-?[01](?:\.\d+)?)$'
+    - property: sentiment
+      op: GREATER_THAN
+      qualifier: "sentiment>{value}"
+      valuePattern: '^(-?[01](?:\.\d+)?)$'
+    - property: language
+      op: EQUALS
+      qualifier: 'language:"{value}"'
+      valuePattern: "^([a-z]{2})$"
+  project:
+    diffbotId: id
+    title: title
+    siteName: siteName
+    author: author
+    date: date.str
+    sentiment: sentiment
+    language: language
+    pageUrl: pageUrl
+    summary: summary
+    publisherRegion: publisherRegion
+    diffbotUri: diffbotUri
+  cache:
+    kind: ttl
+    seconds: 3600             # news is the one thing here that genuinely changes hourly
+    negativeTtlSeconds: 3600
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium
+
+# Open roles at a company — a demand signal nobody expects to find in Diffbot, and one that reads
+# entirely off the employer reference, so it costs one call for many companies.
+- name: jobsByEmployer
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:JobPost employer.id:or({keys}) {filters} revSortBy:date"
+    size: 50
+  keyTemplate: '"{key}"'
+  keyJoin: ","
+  maxKeysPerCall: 25
+  records: "$.data[*].entity"
+  pushdown:
+    - property: date
+      op: GREATER_THAN
+      qualifier: 'date>"{value}"'
+      valuePattern: '^(\d{4}-\d{2}-\d{2})'
+    - property: remote
+      op: EQUALS
+      qualifier: 'remote:"{value}"'
+      valuePattern: "^([A-Za-z-]+)$"
+  project:
+    diffbotId: id
+    title: name
+    employerId: employer.targetDiffbotId
+    employerName: employer.name
+    date: date.str
+    remote: remote
+    city: locations.0.city.name
+    country: locations.0.country.name
+    description: description
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium
+
+# ---------------------------------------------------------------------------------------------
+# Free-text search — a question, rewritten into DQL.
+# ---------------------------------------------------------------------------------------------
+
+# DQL is a source dialect, not a user language, and the failure mode of getting it slightly wrong is
+# the dangerous one: a malformed field path or a lowercase operator returns a PLAUSIBLE number of
+# wrong rows rather than an error. So the rewrite is declared here, on the producer, where every
+# surface — chat, views, MCP — inherits the same translation, rather than in a lens where each
+# surface would reimplement it.
+#
+# The three guarantees the host gives this: the rewrite is CACHED per phrase (the same question
+# searches the same way twice), ECHOED so the executed DQL can be shown and argued with, and FALLS
+# BACK VERBATIM on failure — never to an empty result that would read as "there is nothing".
+- name: orgsByAsk
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "{keys}"
+    size: 50
+  keyTemplate: "{key}"
+  echoKeyAs: matchedFor       # REQUIRED with a transform: identity is the ASK, never the rewrite
+  keyTransform:
+    kind: ai
+    instruction: |
+      Rewrite the request as a single Diffbot Query Language expression over Organizations.
+
+      Rules:
+      - Always start with `type:Organization`.
+      - Filter with dot-paths onto the record's own fields. Use only fields you are confident
+        Diffbot's Organization ontology defines.
+      - Numeric comparisons use bare > < >= <=, e.g. nbEmployees>500. Quote string values.
+      - Use or("a","b") for alternatives and not(...) for exclusions.
+      - Use has:field to require a field be present at all.
+      - Return the expression only — no commentary, no surrounding quotes, no field name prefix.
+    examples:
+      - input: "software companies in Sydney with more than 500 staff"
+        output: 'type:Organization locations.city.name:"Sydney" industries:"Software" nbEmployees>500'
+      - input: "Australian mining companies that are publicly listed"
+        output: 'type:Organization locations.country.name:"Australia" industries:"Mining" isPublic:true'
+      - input: "private equity firms that have acquired someone"
+        output: 'type:Organization industries:"Private Equity" has:investments'
+      - input: "companies like Diffbot but not Diffbot itself"
+        output: 'type:Organization industries:or("Artificial Intelligence","Web Scraping") not(name:"Diffbot")'
+    cacheSeconds: 604800
+  records: "$.data[*].entity"
+  project: *orgProjection
+  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium
+
+- name: peopleByAsk
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "{keys}"
+    size: 50
+  keyTemplate: "{key}"
+  echoKeyAs: matchedFor
+  keyTransform:
+    kind: ai
+    instruction: |
+      Rewrite the request as a single Diffbot Query Language expression over People.
+
+      Rules:
+      - Always start with `type:Person`.
+      - Employment predicates go inside a subquery on the collection:
+        employments.{title:"..." isCurrent:true}. Use isCurrent:true unless the request is
+        explicitly about past roles.
+      - Use or("a","b") for alternatives and not(...) for exclusions. Quote string values.
+      - Return the expression only — no commentary, no surrounding quotes.
+    examples:
+      - input: "data scientists currently working at Diffbot"
+        output: 'type:Person employments.{title:or("data scientist","research scientist") employer.name:"Diffbot" isCurrent:true}'
+      - input: "people who used to work at Oracle and now work somewhere else"
+        output: 'type:Person employments.{employer.name:"Oracle" isCurrent:false}'
+      - input: "CTOs in Melbourne"
+        output: 'type:Person employments.{title:or("CTO","Chief Technology Officer") isCurrent:true} locations.city.name:"Melbourne"'
+    cacheSeconds: 604800
+  records: "$.data[*].entity"
+  project: *personProjection
+  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
+  cost:
+    bucket: diffbot
+    rate: "5/sec"
+    yield: medium

@@ -1,0 +1,137 @@
+# Saved views — the queries worth having pre-written, because each encodes a join or an exclusion
+# that is easy to get wrong by hand.
+
+- name: CompanyOwnership
+  description: |
+    The ownership chain above a company, walked level by level, with each hop's provenance. Answers
+    "who ultimately owns this" — the question Diffbot holds the data for and cannot traverse.
+  params:
+    companyName:
+      type: string
+      default: Diffbot
+      description: "Company name as Diffbot canonicalizes it."
+    depth:
+      type: int
+      default: 4
+      description: "How many ownership levels to walk. Each level costs a fetch."
+  cypher: |
+    MATCH path = (d:DiffbotOrganization {name: $companyName})-[:PARENT_COMPANY*1..4]->(owner:DiffbotOrganization)
+    WHERE length(path) <= $depth
+    RETURN length(path) AS level,
+           owner.name AS owner,
+           owner.country AS country,
+           owner.nbEmployees AS ownerHeadcount,
+           owner.isPublic AS ownerIsPublic,
+           owner.diffbotUri AS source
+    ORDER BY level ASC
+
+- name: GroupRollup
+  description: |
+    A company plus everything beneath it, rolled up. The headcount and revenue figures are SUMS of
+    Diffbot's per-entity estimates, so they are a scale indication and not a consolidated account —
+    and they are a lower bound whenever the walk stops at its declared depth.
+  params:
+    companyName:
+      type: string
+      default: Diffbot
+      description: "Parent company name."
+  cypher: |
+    MATCH (parent:DiffbotOrganization {name: $companyName})
+    OPTIONAL MATCH (parent)<-[:SUBSIDIARY_OF*1..3]-(sub:DiffbotOrganization)
+    RETURN parent.name AS group,
+           count(DISTINCT sub) AS entities,
+           sum(sub.nbEmployees) AS estimatedGroupHeadcount,
+           sum(sub.revenue) AS estimatedGroupRevenue,
+           collect(DISTINCT sub.country)[0..20] AS countries
+
+- name: ContactCompanyProfiles
+  description: |
+    Every company the user's correspondents work for, enriched. The anchor is the inbox, so the
+    fan-out is bounded by who has actually emailed rather than by Diffbot's index.
+  cypher: |
+    MATCH (me:AssistantUser)-[:EMAILED]->(p:Person)-[:WORKS_FOR]->(o:Organization)
+    MATCH (o)-[:HAS_DIFFBOT_ORG]->(d:DiffbotOrganization)
+    RETURN DISTINCT o.name AS organization,
+           d.nbEmployees AS headcount,
+           d.revenue AS revenue,
+           d.industries AS industries,
+           d.country AS country,
+           d.ultimateParentName AS ultimateOwner,
+           d.isAcquired AS acquired,
+           d.nbOrigins AS sourceCount
+    ORDER BY headcount DESC
+
+- name: ContactCompanyNews
+  description: |
+    Recent negative-toned coverage of companies the user is in contact with. The date and sentiment
+    filters push down into Diffbot, so this fetches the slice rather than fetching everything and
+    discarding most of it. Sentiment is tone, not wrongdoing — read the articles.
+  params:
+    sinceDays:
+      type: int
+      default: 30
+      description: "How far back to look."
+    maxSentiment:
+      type: float
+      default: -0.3
+      description: "Only articles at or below this tone score."
+  cypher: |
+    MATCH (me:AssistantUser)-[:EMAILED]->(p:Person)-[:WORKS_FOR]->(o:Organization)
+    MATCH (o)-[:HAS_DIFFBOT_ORG]->(d:DiffbotOrganization)-[:MENTIONED_IN]->(a:DiffbotArticle)
+    WHERE a.date > toString(date() - duration({days: $sinceDays}))
+      AND a.sentiment < $maxSentiment
+    RETURN o.name AS organization,
+           a.title AS headline,
+           a.siteName AS publication,
+           a.date AS published,
+           a.sentiment AS tone,
+           a.pageUrl AS url
+    ORDER BY a.sentiment ASC, a.date DESC
+
+- name: HiringSignals
+  description: |
+    What the companies in the user's world are advertising for. Visible intent, with a lag — a
+    posting outlives the vacancy — so read it as direction rather than as headcount.
+  params:
+    sinceDays:
+      type: int
+      default: 60
+      description: "How far back to look."
+  cypher: |
+    MATCH (me:AssistantUser)-[:EMAILED]->(p:Person)-[:WORKS_FOR]->(o:Organization)
+    MATCH (o)-[:HAS_DIFFBOT_ORG]->(d:DiffbotOrganization)-[:IS_HIRING_FOR]->(j:DiffbotJobPost)
+    WHERE j.date > toString(date() - duration({days: $sinceDays}))
+    RETURN o.name AS organization,
+           j.title AS role,
+           j.city AS city,
+           j.remote AS arrangement,
+           j.date AS posted
+    ORDER BY j.date DESC
+
+- name: CompanySearch
+  description: |
+    Ask Diffbot for companies in plain language. The question is rewritten into DQL at the source
+    and the rewrite is echoed back, so what actually ran can be shown. Capped at 50 results — this
+    is a sample of the index, never a census.
+  outputLabel: DiffbotOrganization
+  params:
+    ask:
+      type: string
+      default: "software companies in Sydney with more than 500 staff"
+      description: "The question, in plain language."
+  cypher: |
+    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(o:DiffbotOrganization)
+    RETURN o
+
+- name: CompanyProfile
+  description: |
+    One company, by name, as a node other traversals can compose onto — ownership, news, hiring.
+  outputLabel: DiffbotOrganization
+  params:
+    ask:
+      type: string
+      default: "Diffbot"
+      description: "Company name or a phrase identifying it."
+  cypher: |
+    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(o:DiffbotOrganization)
+    RETURN o

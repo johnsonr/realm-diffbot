@@ -1,0 +1,51 @@
+name: diffbot
+description: |
+  The Diffbot Knowledge Graph — roughly 10 billion entities crawled and resolved from the public
+  web — reached through Virtual Cypher as a traversable graph rather than as a search index.
+
+  Diffbot's own query language, DQL, filters one entity type at a time and cannot follow a
+  reference: its ownership, employment and article-tag fields are resolved pointers, but walking
+  them means running one query per level with the ids copied between them. This realm declares those
+  pointers as virtual joins, so a corporate ownership chain, a group rollup, or "companies my
+  correspondents work for, and what is being said about them" is one Cypher query against a private
+  anchor Diffbot cannot see.
+version: 0.1.0
+author: Rod Johnson
+url: https://github.com/johnsonr/realm-diffbot
+icon: icon.svg
+tags:
+  - knowledge-graph
+  - companies
+  - people
+  - enrichment
+  - virtual-cypher
+  - ownership
+exports:
+  - diffbot
+  - DiffbotOrganization
+  - DiffbotPerson
+  - DiffbotArticle
+  - DiffbotJobPost
+  - DiffbotOrgSearch
+  - DiffbotPersonSearch
+  - CompanyOwnership
+  - GroupRollup
+  - ContactCompanyProfiles
+  - ContactCompanyNews
+  - HiringSignals
+  - CompanySearch
+  - CompanyProfile
+
+# Diffbot returns 429 under burst rather than queueing, and an ownership walk fans out across
+# several sequential hops inside one budget — so a hop that loses to a rate limit would truncate the
+# chain and report a shorter one, which is the failure that reads as an answer. Retrying the
+# rate-limited class costs a pause; not retrying costs a wrong ownership chain. deadlineShare keeps
+# any single hop from eating the whole walk's budget.
+retry:
+  attempts: 3
+  baseBackoff: 500ms
+  multiplier: 2.0
+  jitter: 0.25
+  maxBackoff: 5s
+  retryOn: [timeout, gateway, connection, rate-limited]
+  deadlineShare: 0.25

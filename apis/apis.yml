@@ -1,0 +1,22 @@
+# Diffbot Knowledge Graph — one vendored spec, two operations.
+#
+# VENDORED rather than URL-fetched. Diffbot publishes no authoritative OpenAPI 3 document for the
+# v3 KG endpoints (the one in diffbot/enhance-client-java describes an older `/kg/enhance_endpoint`
+# path), so the narrow description in diffbot-kg.json is written against the live docs and pinned
+# here — the same posture realm-movie takes for OMDb.
+#
+# Auth: ONE deployment-level token in the `token` query parameter. Not per-user OAuth — a Diffbot
+# account is a subscription, not an identity, so every world on this deployment queries through the
+# same credential and shares the same credit pool. Get one at https://app.diffbot.com/get-started/
+# and set DIFFBOT_TOKEN on the assistant process.
+#
+# The spec declares `ApiKeyAuth` as `apiKey in: query name: token`, so the learner injects it —
+# nothing in this realm ever reads the secret.
+- url: diffbot-kg.json
+  name: diffbot
+  type: openapi
+  auth: api-key
+  token-env: DIFFBOT_TOKEN
+  operation-ids:
+    - dqlSearch
+    - enhance

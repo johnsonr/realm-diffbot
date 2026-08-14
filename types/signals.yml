@@ -1,0 +1,78 @@
+# What is being said about a company, and what it is hiring for.
+#
+# Both hang off an entity id rather than a name, which is what makes them worth having: a name
+# search for "Acme" returns every unrelated Acme, while Diffbot's article tags and job-post employer
+# references point at a resolved entity.
+
+- name: DiffbotArticle
+  userAnchor: false
+  description: |
+    A news article, blog post or other article Diffbot has extracted, reached because it MENTIONS a
+    specific entity — not because it matched a keyword.
+
+    `sentiment` is Diffbot's document-level score from -1 to 1. It is a tone signal, not a judgment:
+    a factual piece about a downturn scores negative without alleging anything, and a hostile piece
+    can score neutral. Never restate a sentiment score as a finding about the company.
+  properties:
+    diffbotId: { identity: true, description: "Stable Diffbot entity id for the article." }
+    title: "Headline."
+    siteName: "Publication name."
+    author: "Byline, when extracted."
+    date: "Publication date."
+    sentiment: { type: float, description: "Document tone from -1 to 1. A tone signal, not an allegation." }
+    language: "Two-letter language code."
+    pageUrl: "URL of the article — always cite this rather than paraphrasing unattributed."
+    summary: "Short summary, when present."
+    publisherRegion: "Region the publisher operates in."
+    diffbotUri: "Canonical Diffbot entity URI."
+    matchedFor: "Diffbot id of the entity this article was fetched for, echoed by the producer. An article record names every entity it mentions but not which one was asked about, so without this stamp the join edge would never form."
+
+  virtualJoins:
+    # Keyed on the ORGANISATION's id, rendered into the tag URI the article carries. Date and
+    # sentiment predicates push down into DQL, so `WHERE a.date > … AND a.sentiment < -0.3` scopes
+    # the fetch at Diffbot instead of pulling fifty articles to keep three.
+    - anchorLabel: DiffbotOrganization
+      relationship: MENTIONED_IN
+      keyField: diffbotId
+      recordKeyField: matchedFor
+      producer: articlesByEntity
+      maxAnchors: 10
+      maxFanoutTotal: 300
+
+    # The same edge from a person. Same producer: the tag URI is built from whatever entity id the
+    # anchor carries, and Diffbot tags people exactly as it tags companies.
+    - anchorLabel: DiffbotPerson
+      relationship: MENTIONED_IN
+      keyField: diffbotId
+      recordKeyField: matchedFor
+      producer: articlesByEntity
+      maxAnchors: 10
+      maxFanoutTotal: 300
+
+- name: DiffbotJobPost
+  userAnchor: false
+  description: |
+    An open role Diffbot has extracted, linked to the employing organization by entity reference.
+
+    A hiring signal with a lag: postings persist after being filled and disappear without being
+    filled, so treat a count as evidence of visible intent, not of headcount change.
+  properties:
+    diffbotId: { identity: true, description: "Stable Diffbot entity id for the job post." }
+    title: "Job title."
+    employerId: "Diffbot id of the employing organization."
+    employerName: "Employer name."
+    date: "Date the role was posted."
+    remote: "Work arrangement as Diffbot classifies it — remote, hybrid, on-site or undefined."
+    city: "City of the first listed location."
+    country: "Country of the first listed location."
+    description: "Full posting text."
+    diffbotUri: "Canonical Diffbot entity URI."
+
+  virtualJoins:
+    - anchorLabel: DiffbotOrganization
+      relationship: IS_HIRING_FOR
+      keyField: diffbotId
+      recordKeyField: employerId
+      producer: jobsByEmployer
+      maxAnchors: 25
+      maxFanoutTotal: 500

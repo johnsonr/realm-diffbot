@@ -1,0 +1,223 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Diffbot Knowledge Graph",
+    "description": "The Diffbot Knowledge Graph — a crawled, entity-resolved index of the public web (~10B entities, ~1T facts) covering organizations, people, articles, job posts, products, places and more.\n\nTwo operations are vendored here, and they answer different questions:\n\n- `dqlSearch` — run a Diffbot Query Language (DQL) expression and get every matching entity. DQL filters ONE entity type at a time with dot-path field predicates; it has no traversal, no joins and no paths. Use it when you want a SET of entities.\n- `enhance` — hand over partial identifying data (a name, a URL, an email) and get the single best-matching entity back, scored. Use it when you want to RESOLVE something you already have into a Knowledge Graph identity.\n\nAuth is a single deployment-level token in the `token` query parameter, from https://app.diffbot.com/get-started/. Entity exports are credit-metered, so both operations cost real money per record returned.",
+    "version": "3.0.0",
+    "contact": {
+      "name": "Diffbot",
+      "url": "https://docs.diffbot.com/"
+    }
+  },
+  "servers": [
+    { "url": "https://kg.diffbot.com" }
+  ],
+  "security": [
+    { "ApiKeyAuth": [] }
+  ],
+  "paths": {
+    "/kg/v3/dql": {
+      "get": {
+        "operationId": "dqlSearch",
+        "summary": "Search the Knowledge Graph with a DQL expression.",
+        "description": "Runs a Diffbot Query Language expression and returns matching entities, most relevant first.\n\nA DQL expression always starts with a `type:` clause naming exactly ONE entity type, followed by zero or more field predicates:\n\n```\ntype:Organization locations.city.name:\"Sydney\" nbEmployees>500\ntype:Person employments.{title:or(\"data scientist\",\"analyst\") isCurrent:true}\ntype:Organization parentCompany.id:or(\"EU2HJUnMcNoWE3nR1cGBcZg\",\"EHb0_0NEcMwyY8b083taTTw\")\ntype:Article tags.uri:\"https://diffbot.com/entity/EYX1i02YVPsuT7fPLUYgRhQ\" date>\"2026-01-01\"\n```\n\nOperators: dot-paths for nested fields; `{ … }` subqueries scoped to a nested collection; `or(a,b)`; `not(…)`; `has:field`; `<` `>` `<=` `>=` comparisons; `re:` for regex; `near[30mi](…)` for proximity; `sortBy:` / `revSortBy:` for ordering; `facet:field` to group counts instead of returning entities.\n\nDQL CANNOT traverse. `parentCompany.id:\"E…\"` is a reverse-index lookup on a denormalized reference field, not a hop — following a chain of owners means running this operation once per level with the ids read out of the previous response.",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "description": "The DQL expression. Must begin with a `type:` clause.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "How to interpret `query`. `query` (default) is DQL. `text` is free-text search. `queryTextFallback` tries DQL then falls back to text.",
+            "schema": { "type": "string", "enum": ["query", "text", "queryTextFallback"], "default": "query" }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "description": "Entities to return, maximum 50. Every entity returned is billed, so ask for what will be read.",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 50 }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Zero-based offset of the first result — the paging cursor.",
+            "schema": { "type": "integer", "minimum": 0, "default": 0 }
+          },
+          {
+            "name": "nonCanonicalFacts",
+            "in": "query",
+            "required": false,
+            "description": "Include facts Diffbot has not promoted to canonical. Off by default; noisier and larger.",
+            "schema": { "type": "boolean", "default": false }
+          },
+          {
+            "name": "jsonmode",
+            "in": "query",
+            "required": false,
+            "description": "`extended` adds per-fact provenance (which source asserted each value). Costs response size; useful when a claim needs attributing.",
+            "schema": { "type": "string", "enum": ["extended", "id"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching entities.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SearchResponse" }
+              }
+            }
+          },
+          "429": { "description": "Rate or credit limit exceeded." }
+        }
+      }
+    },
+    "/kg/v3/enhance": {
+      "get": {
+        "operationId": "enhance",
+        "summary": "Resolve partial identifying data to the single best-matching entity.",
+        "description": "Scores candidate entities against the fields supplied and returns the best match with its score. This is the entity-resolution operation: use it to turn a name, a website, or an email address into a stable Diffbot entity id, and use `dqlSearch` afterwards to query from that id.\n\nAt least one identifying field beyond `type` is required. More fields means a better match — `name` plus `url` is far more reliable than `name` alone, because company names are not unique and websites are.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "description": "Which entity type to resolve to.",
+            "schema": { "type": "string", "enum": ["Organization", "Person"] }
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "description": "Name of the organization or person.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "url",
+            "in": "query",
+            "required": false,
+            "description": "Website or profile URL. The strongest single signal for an Organization — a domain is unique in a way a name is not.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "required": false,
+            "description": "Email address. The strongest single signal for a Person.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "employer",
+            "in": "query",
+            "required": false,
+            "description": "Person only — employer name, to disambiguate people who share a name.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "required": false,
+            "description": "Person only — job title, to disambiguate.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "location",
+            "in": "query",
+            "required": false,
+            "description": "Complete or partial address, to disambiguate.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "description": "Return more than one candidate. Default 1 — the best match only.",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 10, "default": 1 }
+          },
+          {
+            "name": "threshold",
+            "in": "query",
+            "required": false,
+            "description": "Minimum match score to return anything. Raise it when a wrong match is worse than no match.",
+            "schema": { "type": "number" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Best-matching entity or entities, each with a match score.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/SearchResponse" }
+              }
+            }
+          },
+          "429": { "description": "Rate or credit limit exceeded." }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "token"
+      }
+    },
+    "schemas": {
+      "SearchResponse": {
+        "type": "object",
+        "description": "Both operations answer in this envelope. `hits` is the total the index matched, which is usually larger than `data.length`.",
+        "properties": {
+          "version": { "type": "integer" },
+          "hits": { "type": "integer", "description": "Total entities matching, before size/from." },
+          "results": { "type": "integer", "description": "Entities in this response." },
+          "kgversion": { "type": "string", "description": "Knowledge Graph build the answer came from." },
+          "facet": { "type": "boolean", "description": "True when the query used facet: and the payload is counts rather than entities." },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "score": { "type": "number", "description": "Relevance (dqlSearch) or match confidence (enhance)." },
+                "entity": { "$ref": "#/components/schemas/Entity" }
+              }
+            }
+          }
+        }
+      },
+      "Entity": {
+        "type": "object",
+        "description": "A Knowledge Graph entity. Shape varies by type; only the fields common to every type are declared here, because the full Organization record alone carries ~180 fields. Cross-entity fields (parentCompany, ceo, employer, subsidiaries, competitors) are EntityReference objects, or arrays of them, carrying the target's id — which is what makes a second query possible.",
+        "properties": {
+          "id": { "type": "string", "description": "Stable Diffbot entity id, e.g. EYX1i02YVPsuT7fPLUYgRhQ." },
+          "diffbotUri": { "type": "string", "description": "https://diffbot.com/entity/<id>." },
+          "name": { "type": "string" },
+          "type": { "type": "string", "description": "Primary entity type." },
+          "types": { "type": "array", "items": { "type": "string" } },
+          "summary": { "type": "string" },
+          "description": { "type": "string" },
+          "importance": { "type": "number", "description": "Diffbot's own prominence score for the entity." },
+          "nbOrigins": { "type": "integer", "description": "How many distinct web sources this record was fused from." }
+        },
+        "additionalProperties": true
+      },
+      "EntityReference": {
+        "type": "object",
+        "description": "A resolved pointer to another entity. `targetDiffbotId` is the id to query next.",
+        "properties": {
+          "name": { "type": "string" },
+          "diffbotUri": { "type": "string" },
+          "targetDiffbotId": { "type": "string" },
+          "types": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

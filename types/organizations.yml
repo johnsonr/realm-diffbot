@@ -1,0 +1,191 @@
+# The Diffbot Organization, and the corporate structure around it.
+#
+# This file is the reason the realm exists. Diffbot's ownership fields — parentCompany,
+# ultimateParent, subsidiaries, acquiredBy — are resolved references, so the ownership graph is
+# already there and already correct; what is missing from Diffbot's own surface is the ability to
+# WALK it. Declaring these as self-recursive virtual joins makes
+#
+#   MATCH (d:DiffbotOrganization {name:'Acme'})-[:PARENT_COMPANY*1..4]->(owner)
+#
+# one query instead of four manual round-trips with the ids copied between them.
+
+- name: DiffbotOrganization
+  userAnchor: false
+  description: |
+    A company, non-profit or other organization as the Diffbot Knowledge Graph currently holds it,
+    fused from many public web sources and materialized transiently for the life of one query.
+
+    A Diffbot record is what the public web says about an organization, not a register of fact.
+    Headcount and revenue are estimates, `foundingDate` is often the date of the earliest source
+    rather than of incorporation, and a private company's record is far thinner than a listed one's.
+    `nbOrigins` — how many sources the record was fused from — is the honest confidence signal:
+    hundreds means a well-covered company, a handful means one press release.
+  properties:
+    diffbotId:
+      identity: true
+      description: "Stable Diffbot entity id. The key every structural hop in this realm joins on."
+    name: "Organization name as Diffbot canonicalizes it."
+    homepageUri: "Primary website. The strongest identifier a company has here — names are not unique, domains are."
+    summary: "Short description Diffbot composed from its sources."
+    nbEmployees: { type: int, description: "Estimated current headcount. An estimate from public signals, not a filing." }
+    nbEmployeesMin: { type: int, description: "Lower bound of the estimated headcount range." }
+    nbEmployeesMax: { type: int, description: "Upper bound of the estimated headcount range." }
+    revenue: { type: int, description: "Estimated annual revenue, in revenueCurrency. Reliable for listed companies, an inference for private ones." }
+    revenueCurrency: "Currency of the revenue estimate."
+    foundingDate: "Founding date as Diffbot records it — frequently the earliest source it saw rather than an incorporation date."
+    isPublic: { type: boolean, description: "Publicly listed." }
+    isAcquired: { type: boolean, description: "Diffbot believes this organization has been acquired. Pair with acquiredBy." }
+    isDissolved: { type: boolean, description: "Diffbot believes this organization no longer operates." }
+    isNonProfit: { type: boolean, description: "Registered as a non-profit." }
+    importance: { type: float, description: "Diffbot's own prominence score. Ranks entities against each other; means nothing in absolute terms." }
+    nbOrigins: { type: int, description: "How many distinct web sources this record was fused from — the coverage signal. Low means thin evidence." }
+    industries: { cardinality: LIST, description: "Diffbot industry labels." }
+    descriptors: { cardinality: LIST, description: "Short descriptive phrases Diffbot extracted, e.g. 'web data company'." }
+    city: "City of the primary location."
+    region: "State or region of the primary location."
+    country: "Country of the primary location."
+    parentCompanyId: "Diffbot id of the immediate parent — the key the PARENT_COMPANY hop follows."
+    parentCompanyName: "Name of the immediate parent, present without following the hop."
+    ultimateParentId: "Diffbot id of the topmost owner, as Diffbot computes it."
+    ultimateParentName: "Name of the topmost owner. Compare against a walked PARENT_COMPANY chain rather than trusting either alone."
+    acquiredById: "Diffbot id of the acquirer, when isAcquired."
+    acquiredByName: "Name of the acquirer."
+    ceoId: "Diffbot id of the CEO."
+    ceoName: "CEO name, present without following the LED_BY hop."
+    stockSymbol: "Primary ticker, when listed."
+    linkedInUri: "LinkedIn company page."
+    crunchbaseUri: "Crunchbase profile."
+    githubUri: "GitHub organization."
+    twitterUri: "X/Twitter profile."
+    diffbotUri: "Canonical https://diffbot.com/entity/<id> URI. Also the value article tags carry."
+    matchedFor: "What this record was fetched for — a domain, a question, or the id of the company it was named a competitor of — echoed by the producer so the join matches what was asked rather than what came back."
+
+  virtualJoins:
+    # ------------------------------------------------------------------------------------------
+    # The bridge into the world's own graph.
+    # ------------------------------------------------------------------------------------------
+    # Organization is a CORE label — every world has it, populated from correspondence — so this
+    # realm attaches to the user's real data without depending on any other realm being installed.
+    #
+    # Resolved lazily, per anchor a query actually binds, and PERSISTED: the identity is stable and
+    # expensive, the facts are volatile and cheap, so the bridge is cached while everything reached
+    # through it rolls back. Domain first because a domain identifies a company and a name does not;
+    # for an organization with no domain in the graph, set Organization.diffbotId by hand and the
+    # learnedHandle rule picks it up without a lookup.
+    - anchorLabel: Organization
+      relationship: HAS_DIFFBOT_ORG
+      keyField: domain
+      recordKeyField: matchedFor
+      producer: orgEnhanceByDomain
+      writeThrough: true
+      refreshAfter: 90d
+      resolve:
+        - existingBridge
+        - learnedHandle: { property: diffbotId, as: diffbotId }
+        - canonicalDomain: { producer: orgEnhanceByDomain }
+      maxAnchors: 50
+
+    # ------------------------------------------------------------------------------------------
+    # Ownership — the self-recursive hops. This is the capability DQL does not have.
+    # ------------------------------------------------------------------------------------------
+    # Upward. Anchor and target are the same type, so a variable-length pattern walks it:
+    #   MATCH (d:DiffbotOrganization {name:'Acme'})-[:PARENT_COMPANY*1..4]->(o) RETURN o.name
+    # Every hop resolves before the query evaluates, cycles terminate, and each fetched edge carries
+    # sourceId/sourceName/hop provenance. maxFanoutTotal is the whole walk's budget, not one hop's.
+    - anchorLabel: DiffbotOrganization
+      relationship: PARENT_COMPANY
+      keyField: parentCompanyId
+      recordKeyField: diffbotId
+      producer: orgsById
+      maxAnchors: 50
+      maxFanoutTotal: 200
+
+    # Diffbot's own answer to "who ultimately owns this", in one hop. Kept alongside the walk rather
+    # than instead of it: they are computed differently and disagreeing is informative — a walk that
+    # ends somewhere other than ultimateParent means Diffbot's chain and its rollup were built from
+    # different sources.
+    - anchorLabel: DiffbotOrganization
+      relationship: ULTIMATE_PARENT
+      keyField: ultimateParentId
+      recordKeyField: diffbotId
+      producer: orgsById
+      maxAnchors: 50
+      maxFanoutTotal: 50
+
+    # Downward, and the best-supported query in the realm — Diffbot's own documentation demonstrates
+    # exactly this reverse lookup. Recursive in the same way:
+    #   MATCH (d:DiffbotOrganization {name:'Acme'})<-[:SUBSIDIARY_OF*1..3]-(sub)
+    #   RETURN sum(sub.nbEmployees)
+    # Note the direction: the edge is declared FROM the child, so a group rollup reads inbound.
+    - anchorLabel: DiffbotOrganization
+      relationship: SUBSIDIARY_OF
+      keyField: diffbotId
+      recordKeyField: parentCompanyId
+      producer: orgsByParent
+      maxAnchors: 25
+      maxFanoutTotal: 500
+
+    - anchorLabel: DiffbotOrganization
+      relationship: ACQUIRED_BY
+      keyField: acquiredById
+      recordKeyField: diffbotId
+      producer: orgsById
+      maxAnchors: 50
+      maxFanoutTotal: 50
+
+    # INBOUND competitors: organizations that name this one as a competitor. Deliberately not the
+    # record's own `competitors` list — the two disagree, and presenting the inbound view as the
+    # company's own claim would be a fabrication. Low cap: this is the least reliable edge here.
+    #
+    # recordKeyField is matchedFor, NOT diffbotId. The records coming back are the OTHER companies:
+    # their own id identifies them, not the anchor we searched for, so matching on it would compare
+    # two different companies' ids and the edge would never form. The producer echoes the queried id
+    # instead, which is also why it fetches one anchor at a time.
+    - anchorLabel: DiffbotOrganization
+      relationship: COMPETES_WITH
+      keyField: diffbotId
+      recordKeyField: matchedFor
+      producer: orgsByCompetitor
+      maxAnchors: 10
+      maxFanoutTotal: 100
+
+    # Where a person works, walked from the person into the company — so an inbox contact resolves
+    # to a person, the person to an employer, and the employer up its ownership chain. Three hops,
+    # none of which Diffbot can traverse.
+    - anchorLabel: DiffbotPerson
+      relationship: WORKS_AT
+      keyField: currentEmployerId
+      recordKeyField: diffbotId
+      producer: orgsById
+      maxAnchors: 50
+      maxFanoutTotal: 100
+
+    # ------------------------------------------------------------------------------------------
+    # Search — no anchor in the graph at all.
+    # ------------------------------------------------------------------------------------------
+    # The entry point for a question about companies the user has never corresponded with. The
+    # scope node is literal-seeded from the query itself, so nothing needs to exist first:
+    #   MATCH (:DiffbotOrgSearch {ask:'mining companies in WA over 500 staff'})-[:MATCHED]->(o)
+    #   RETURN o.name, o.nbEmployees
+    # and from there every hop above is available — which is the whole point: a search RESULT is a
+    # bound anchor, so ownership walks and hiring signals compose straight onto it.
+    - anchorLabel: DiffbotOrgSearch
+      relationship: MATCHED
+      keyField: ask
+      recordKeyField: matchedFor
+      producer: orgsByAsk
+      maxAnchors: 4
+      maxFanoutTotal: 200
+
+# A literal-seeded query scope, not a mirrored search index. Holds the question; the DQL it becomes
+# is the producer's business, and the rewrite is echoed back so it can be shown and argued with.
+- name: DiffbotOrgSearch
+  userAnchor: false
+  description: |
+    A company search against the Diffbot Knowledge Graph, seeded from the question itself. Traverse
+    MATCHED to run it. Results are Diffbot's ranking of its own index, capped at 50 per search —
+    a sample of what matched, not a census of what exists.
+  properties:
+    ask:
+      identity: true
+      description: "The question, in plain language. Rewritten into DQL at fetch time."
