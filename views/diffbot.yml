@@ -78,7 +78,7 @@
   cypher: |
     MATCH (me:AssistantUser)-[:EMAILED]->(p:Person)-[:WORKS_FOR]->(o:Organization)
     MATCH (o)-[:HAS_DIFFBOT_ORG]->(d:DiffbotOrganization)-[:MENTIONED_IN]->(a:DiffbotArticle)
-    WHERE a.date > toString(date() - duration({days: $sinceDays}))
+    WHERE a.dateTimestamp > datetime().epochMillis - ($sinceDays * 86400000)
       AND a.sentiment < $maxSentiment
     RETURN o.name AS organization,
            a.title AS headline,
@@ -100,7 +100,7 @@
   cypher: |
     MATCH (me:AssistantUser)-[:EMAILED]->(p:Person)-[:WORKS_FOR]->(o:Organization)
     MATCH (o)-[:HAS_DIFFBOT_ORG]->(d:DiffbotOrganization)-[:IS_HIRING_FOR]->(j:DiffbotJobPost)
-    WHERE j.date > toString(date() - duration({days: $sinceDays}))
+    WHERE j.dateTimestamp > datetime().epochMillis - ($sinceDays * 86400000)
     RETURN o.name AS organization,
            j.title AS role,
            j.city AS city,

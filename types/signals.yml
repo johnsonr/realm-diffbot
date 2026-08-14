@@ -18,7 +18,8 @@
     title: "Headline."
     siteName: "Publication name."
     author: "Byline, when extracted."
-    date: "Publication date."
+    date: "Publication date in Diffbot's own textual form, carrying a leading `d` (e.g. `d2025-07-31T00:00`). DISPLAY ONLY — see dateTimestamp for filtering."
+    dateTimestamp: { type: int, description: "Publication date as epoch milliseconds. FILTER ON THIS graph-side; a `>` against `date` compares `d2025…` to `2025…` and passes everything." }
     sentiment: { type: float, description: "Document tone from -1 to 1. A tone signal, not an allegation." }
     language: "Two-letter language code."
     pageUrl: "URL of the article — always cite this rather than paraphrasing unattributed."
@@ -61,8 +62,9 @@
     title: "Job title."
     employerId: "Diffbot id of the employing organization."
     employerName: "Employer name."
-    date: "Date the role was posted."
-    remote: "Work arrangement as Diffbot classifies it — remote, hybrid, on-site or undefined."
+    date: "Posting date in Diffbot's own textual form, carrying a leading `d`. DISPLAY ONLY — see dateTimestamp."
+    dateTimestamp: { type: int, description: "Posting date as epoch milliseconds. Filter on this graph-side." }
+    remote: "Work arrangement as Diffbot's normalized token — `REMOTE`, `NOT_REMOTE`, `HYBRID`, `UNDEFINED`. Diffbot returns this as an object; the token is lifted from its normalizedValue — verified live 2026-08-14."
     city: "City of the first listed location."
     country: "Country of the first listed location."
     description: "Full posting text."

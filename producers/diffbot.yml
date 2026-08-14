@@ -49,6 +49,7 @@
     revenue: revenue.value
     revenueCurrency: revenue.currency
     foundingDate: foundingDate.str
+    foundingDateTimestamp: foundingDate.timestamp
     isPublic: isPublic
     isAcquired: isAcquired
     isDissolved: isDissolved
@@ -68,7 +69,9 @@
     acquiredByName: acquiredBy.name
     ceoId: ceo.targetDiffbotId
     ceoName: ceo.name
-    stockSymbol: stock.0.symbol
+    stockSymbol: stock.symbol
+    stockExchange: stock.exchange
+    capitalization: capitalization.value
     linkedInUri: linkedInUri
     crunchbaseUri: crunchbaseUri
     githubUri: githubUri
@@ -159,6 +162,7 @@
     revenue: revenue.value
     revenueCurrency: revenue.currency
     foundingDate: foundingDate.str
+    foundingDateTimestamp: foundingDate.timestamp
     isPublic: isPublic
     isAcquired: isAcquired
     isDissolved: isDissolved
@@ -178,7 +182,9 @@
     acquiredByName: acquiredBy.name
     ceoId: ceo.targetDiffbotId
     ceoName: ceo.name
-    stockSymbol: stock.0.symbol
+    stockSymbol: stock.symbol
+    stockExchange: stock.exchange
+    capitalization: capitalization.value
     linkedInUri: linkedInUri
     crunchbaseUri: crunchbaseUri
     githubUri: githubUri
@@ -267,6 +273,7 @@
     revenue: revenue.value
     revenueCurrency: revenue.currency
     foundingDate: foundingDate.str
+    foundingDateTimestamp: foundingDate.timestamp
     isPublic: isPublic
     isAcquired: isAcquired
     isDissolved: isDissolved
@@ -286,7 +293,9 @@
     acquiredByName: acquiredBy.name
     ceoId: ceo.targetDiffbotId
     ceoName: ceo.name
-    stockSymbol: stock.0.symbol
+    stockSymbol: stock.symbol
+    stockExchange: stock.exchange
+    capitalization: capitalization.value
     linkedInUri: linkedInUri
     crunchbaseUri: crunchbaseUri
     githubUri: githubUri
@@ -331,6 +340,7 @@
     revenue: revenue.value
     revenueCurrency: revenue.currency
     foundingDate: foundingDate.str
+    foundingDateTimestamp: foundingDate.timestamp
     isPublic: isPublic
     isAcquired: isAcquired
     isDissolved: isDissolved
@@ -350,7 +360,9 @@
     acquiredByName: acquiredBy.name
     ceoId: ceo.targetDiffbotId
     ceoName: ceo.name
-    stockSymbol: stock.0.symbol
+    stockSymbol: stock.symbol
+    stockExchange: stock.exchange
+    capitalization: capitalization.value
     linkedInUri: linkedInUri
     crunchbaseUri: crunchbaseUri
     githubUri: githubUri
@@ -470,6 +482,7 @@
     siteName: siteName
     author: author
     date: date.str
+    dateTimestamp: date.timestamp
     sentiment: sentiment
     language: language
     pageUrl: pageUrl
@@ -505,14 +518,15 @@
     - property: remote
       op: EQUALS
       qualifier: 'remote:"{value}"'
-      valuePattern: "^([A-Za-z-]+)$"
+      valuePattern: "^([A-Z_]+)$"
   project:
     diffbotId: id
     title: name
     employerId: employer.targetDiffbotId
     employerName: employer.name
     date: date.str
-    remote: remote
+    dateTimestamp: date.timestamp
+    remote: remote.normalizedValue
     city: locations.0.city.name
     country: locations.0.country.name
     description: description
@@ -583,6 +597,7 @@
     revenue: revenue.value
     revenueCurrency: revenue.currency
     foundingDate: foundingDate.str
+    foundingDateTimestamp: foundingDate.timestamp
     isPublic: isPublic
     isAcquired: isAcquired
     isDissolved: isDissolved
@@ -602,7 +617,9 @@
     acquiredByName: acquiredBy.name
     ceoId: ceo.targetDiffbotId
     ceoName: ceo.name
-    stockSymbol: stock.0.symbol
+    stockSymbol: stock.symbol
+    stockExchange: stock.exchange
+    capitalization: capitalization.value
     linkedInUri: linkedInUri
     crunchbaseUri: crunchbaseUri
     githubUri: githubUri

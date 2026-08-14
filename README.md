@@ -128,13 +128,31 @@ large address book costs a handful of calls, not one per person.
 
 ## Known limitations
 
-**Unverified against the live API.** This realm was written against Diffbot's published
-documentation without an API token to test with. The DQL shapes it emits — `id:or(…)`,
-`parentCompany.id:or(…)`, `competitors.id:or(…)`, `employments.{employer.id:… isCurrent:true}`,
-`tags.uri:or(…)`, `employer.id:or(…)` — follow documented patterns, and the first two appear verbatim
-in Diffbot's own docs, but the others are extrapolated from the ontology. **Verify each join returns
-rows before trusting it**, and treat the field projections the same way: Diffbot's Organization record
-has ~180 fields and the ~30 projected here were chosen from documentation, not from a live response.
+**Verified live against the API on 2026-08-14.** Every DQL shape the realm emits was executed
+against a real token and returned rows:
+
+| Shape | Query | Result |
+|---|---|---|
+| `id:or(…)` | `type:Organization id:or("EYX1…","EHb0…")` | 2 hits, both entities |
+| `parentCompany.id:or(…)` | subsidiaries of Apple | 186 hits |
+| `competitors.id:or(…)` | inbound competitors of Diffbot | 1 hit |
+| `employments.{employer.id:… isCurrent:true}` | current Diffbot staff | 39 hits |
+| `employer.id:or(…)` | Apple job posts | 13,386 hits |
+| `tags.uri:or(…)` | articles mentioning Apple | 3.18M hits |
+| `enhance?type=Organization&url=` | diffbot.com | score 0.96, correct entity |
+| date pushdown | `date>"2026-06-01"` | 21 of 13,386 — and 0 for a future date |
+| sentiment pushdown | `sentiment<-0.3` | 799k of 3.18M, sample tone −1.0 |
+
+Three projection bugs were found and fixed this way, all of which would have produced silently
+missing properties rather than errors: `stock` is a single OBJECT (not a list, so `stock.0.symbol`
+found nothing), `remote` on a JobPost is an object whose token lives at `remote.normalizedValue`,
+and **every Diffbot date is an object whose `.str` carries a leading `d`** (`d2026-07-27`).
+
+That last one matters beyond cosmetics. `d` sorts above every digit, so a graph-side
+`WHERE a.date > '2026-07-01'` passes *every* row while looking like it filters. Each date is
+therefore projected twice: `date` for display and `dateTimestamp` (epoch millis) for filtering.
+**Filter on `dateTimestamp`.** The pushdown rules still take an ISO date, because that is what DQL
+itself wants at the source.
 
 **No paging, so a wide search truncates at 50.** DQL pages by `from` offset, which the host's paging
 walker (page-number or cursor) does not model. Every producer therefore fetches one page of at most 50

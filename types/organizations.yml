@@ -32,7 +32,8 @@
     nbEmployeesMax: { type: int, description: "Upper bound of the estimated headcount range." }
     revenue: { type: int, description: "Estimated annual revenue, in revenueCurrency. Reliable for listed companies, an inference for private ones." }
     revenueCurrency: "Currency of the revenue estimate."
-    foundingDate: "Founding date as Diffbot records it — frequently the earliest source it saw rather than an incorporation date."
+    foundingDate: "Founding date in Diffbot's own textual form, which carries a leading `d` (e.g. `d2000-05-22`). DISPLAY ONLY — a lexical comparison against a plain ISO date is meaningless because `d` sorts above every digit. Filter on foundingDateTimestamp."
+    foundingDateTimestamp: { type: int, description: "Founding date as epoch milliseconds. The filterable twin of foundingDate — verified live 2026-08-14." }
     isPublic: { type: boolean, description: "Publicly listed." }
     isAcquired: { type: boolean, description: "Diffbot believes this organization has been acquired. Pair with acquiredBy." }
     isDissolved: { type: boolean, description: "Diffbot believes this organization no longer operates." }
@@ -52,7 +53,9 @@
     acquiredByName: "Name of the acquirer."
     ceoId: "Diffbot id of the CEO."
     ceoName: "CEO name, present without following the LED_BY hop."
-    stockSymbol: "Primary ticker, when listed."
+    stockSymbol: "Primary ticker, when listed. Diffbot returns `stock` as a single OBJECT, not a list — verified live 2026-08-14."
+    stockExchange: "Exchange the ticker trades on, e.g. `Nasdaq (NASDAQ)`."
+    capitalization: { type: int, description: "Market capitalization in the record's own currency, when listed." }
     linkedInUri: "LinkedIn company page."
     crunchbaseUri: "Crunchbase profile."
     githubUri: "GitHub organization."
