@@ -166,3 +166,9 @@ deserves less weight than one built from 500. Headcount and revenue are estimate
 uneven: large listed companies are deep, private companies are thin, and people are covered only in
 proportion to their public professional footprint. An absent record means Diffbot has not indexed
 something, never that it does not exist.
+
+**A note on YAML anchors:** do not use them. The host parses these files with Jackson, which
+resolves anchors only for scalars — an alias to a mapping arrives as a bare string, fails to bind,
+and takes the entire file down with it, so every producer in it vanishes and the only symptom is
+`Unknown producer '<name>' in plan`. `check-wiring.py` rejects anchors textually, because Python's
+YAML parser resolves them correctly and would not notice.

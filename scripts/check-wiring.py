@@ -13,6 +13,7 @@ Both are mechanically detectable, so they are checked here rather than discovere
 """
 
 import glob
+import re
 import os
 import sys
 
@@ -30,11 +31,35 @@ def load(pattern):
             yield path, entry
 
 
+def check_no_yaml_anchors(problems):
+    """YAML anchors parse here and fail in the host.
+
+    The host reads these files with Jackson's YAML parser, which resolves anchors only for SCALARS.
+    An alias to a mapping — `project: *orgProjection` — arrives as the bare string "orgProjection",
+    which cannot bind to Map<String,String>. Jackson then fails the WHOLE file, so every producer in
+    it disappears and the first fetch reports `Unknown producer '<name>' in plan` with nothing
+    pointing at the real cause.
+
+    Python's yaml resolves the alias correctly, so this check cannot be done by inspecting the
+    parsed structure — it has to read the text.
+    """
+    for path in sorted(glob.glob(os.path.join(ROOT, "**/*.yml"), recursive=True)):
+        for lineno, line in enumerate(open(path), 1):
+            stripped = line.split("#", 1)[0].rstrip()
+            if re.search(r":\s*[&*][A-Za-z_]", stripped):
+                rel = os.path.relpath(path, ROOT)
+                problems.append(
+                    f"{rel}:{lineno}: YAML anchor/alias — Jackson resolves these only for scalars "
+                    f"and fails the whole file. Write the value out in full."
+                )
+
+
 def main():
     producers = {p["name"]: p for _, p in load("producers/*.yml")}
     types = {t["name"]: t for _, t in load("types/*.yml")}
 
     problems = []
+    check_no_yaml_anchors(problems)
 
     for name, t in types.items():
         props = t.get("properties") or {}

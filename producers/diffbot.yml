@@ -38,7 +38,7 @@
     type: Organization
     threshold: 0.7
   records: "$.data[*].entity"
-  project: &orgProjection
+  project:
     diffbotId: id
     name: name
     homepageUri: homepageUri
@@ -98,7 +98,7 @@
     type: Person
     threshold: 0.7
   records: "$.data[*].entity"
-  project: &personProjection
+  project:
     diffbotId: id
     name: name
     summary: summary
@@ -144,7 +144,46 @@
   keyJoin: ","
   maxKeysPerCall: 50          # the endpoint's own result ceiling — more ids than that cannot answer
   records: "$.data[*].entity"
-  project: *orgProjection
+  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
+  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'orgProjection',
+  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
+  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
+  project:
+    diffbotId: id
+    name: name
+    homepageUri: homepageUri
+    summary: summary
+    nbEmployees: nbEmployees
+    nbEmployeesMin: nbEmployeesMin
+    nbEmployeesMax: nbEmployeesMax
+    revenue: revenue.value
+    revenueCurrency: revenue.currency
+    foundingDate: foundingDate.str
+    isPublic: isPublic
+    isAcquired: isAcquired
+    isDissolved: isDissolved
+    isNonProfit: isNonProfit
+    importance: importance
+    nbOrigins: nbOrigins
+    industries: industries
+    descriptors: descriptors
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    parentCompanyId: parentCompany.targetDiffbotId
+    parentCompanyName: parentCompany.name
+    ultimateParentId: ultimateParent.targetDiffbotId
+    ultimateParentName: ultimateParent.name
+    acquiredById: acquiredBy.targetDiffbotId
+    acquiredByName: acquiredBy.name
+    ceoId: ceo.targetDiffbotId
+    ceoName: ceo.name
+    stockSymbol: stock.0.symbol
+    linkedInUri: linkedInUri
+    crunchbaseUri: crunchbaseUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    diffbotUri: diffbotUri
   cache:
     kind: ttl
     seconds: 86400
@@ -164,7 +203,28 @@
   keyJoin: ","
   maxKeysPerCall: 50
   records: "$.data[*].entity"
-  project: *personProjection
+  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
+  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'personProjection',
+  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
+  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    importance: importance
+    nbOrigins: nbOrigins
+    currentTitle: employments.0.title
+    currentEmployerId: employments.0.employer.targetDiffbotId
+    currentEmployerName: employments.0.employer.name
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    linkedInUri: linkedInUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    crunchbaseUri: crunchbaseUri
+    diffbotUri: diffbotUri
   cache:
     kind: ttl
     seconds: 86400
@@ -192,7 +252,46 @@
   keyJoin: ","
   maxKeysPerCall: 25          # each parent can have many children; keep one call's 50-cap shared thin
   records: "$.data[*].entity"
-  project: *orgProjection
+  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
+  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'orgProjection',
+  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
+  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
+  project:
+    diffbotId: id
+    name: name
+    homepageUri: homepageUri
+    summary: summary
+    nbEmployees: nbEmployees
+    nbEmployeesMin: nbEmployeesMin
+    nbEmployeesMax: nbEmployeesMax
+    revenue: revenue.value
+    revenueCurrency: revenue.currency
+    foundingDate: foundingDate.str
+    isPublic: isPublic
+    isAcquired: isAcquired
+    isDissolved: isDissolved
+    isNonProfit: isNonProfit
+    importance: importance
+    nbOrigins: nbOrigins
+    industries: industries
+    descriptors: descriptors
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    parentCompanyId: parentCompany.targetDiffbotId
+    parentCompanyName: parentCompany.name
+    ultimateParentId: ultimateParent.targetDiffbotId
+    ultimateParentName: ultimateParent.name
+    acquiredById: acquiredBy.targetDiffbotId
+    acquiredByName: acquiredBy.name
+    ceoId: ceo.targetDiffbotId
+    ceoName: ceo.name
+    stockSymbol: stock.0.symbol
+    linkedInUri: linkedInUri
+    crunchbaseUri: crunchbaseUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    diffbotUri: diffbotUri
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
   cost:
     bucket: diffbot
@@ -217,7 +316,46 @@
   echoKeyAs: matchedFor
   batchSafe: false
   records: "$.data[*].entity"
-  project: *orgProjection
+  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
+  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'orgProjection',
+  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
+  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
+  project:
+    diffbotId: id
+    name: name
+    homepageUri: homepageUri
+    summary: summary
+    nbEmployees: nbEmployees
+    nbEmployeesMin: nbEmployeesMin
+    nbEmployeesMax: nbEmployeesMax
+    revenue: revenue.value
+    revenueCurrency: revenue.currency
+    foundingDate: foundingDate.str
+    isPublic: isPublic
+    isAcquired: isAcquired
+    isDissolved: isDissolved
+    isNonProfit: isNonProfit
+    importance: importance
+    nbOrigins: nbOrigins
+    industries: industries
+    descriptors: descriptors
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    parentCompanyId: parentCompany.targetDiffbotId
+    parentCompanyName: parentCompany.name
+    ultimateParentId: ultimateParent.targetDiffbotId
+    ultimateParentName: ultimateParent.name
+    acquiredById: acquiredBy.targetDiffbotId
+    acquiredByName: acquiredBy.name
+    ceoId: ceo.targetDiffbotId
+    ceoName: ceo.name
+    stockSymbol: stock.0.symbol
+    linkedInUri: linkedInUri
+    crunchbaseUri: crunchbaseUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    diffbotUri: diffbotUri
   cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
   cost:
     bucket: diffbot
@@ -245,7 +383,28 @@
   echoKeyAs: matchedFor
   batchSafe: false
   records: "$.data[*].entity"
-  project: *personProjection
+  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
+  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'personProjection',
+  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
+  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    importance: importance
+    nbOrigins: nbOrigins
+    currentTitle: employments.0.title
+    currentEmployerId: employments.0.employer.targetDiffbotId
+    currentEmployerName: employments.0.employer.name
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    linkedInUri: linkedInUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    crunchbaseUri: crunchbaseUri
+    diffbotUri: diffbotUri
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
   cost:
     bucket: diffbot
@@ -409,7 +568,46 @@
         output: 'type:Organization industries:or("Artificial Intelligence","Web Scraping") not(name:"Diffbot")'
     cacheSeconds: 604800
   records: "$.data[*].entity"
-  project: *orgProjection
+  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
+  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'orgProjection',
+  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
+  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
+  project:
+    diffbotId: id
+    name: name
+    homepageUri: homepageUri
+    summary: summary
+    nbEmployees: nbEmployees
+    nbEmployeesMin: nbEmployeesMin
+    nbEmployeesMax: nbEmployeesMax
+    revenue: revenue.value
+    revenueCurrency: revenue.currency
+    foundingDate: foundingDate.str
+    isPublic: isPublic
+    isAcquired: isAcquired
+    isDissolved: isDissolved
+    isNonProfit: isNonProfit
+    importance: importance
+    nbOrigins: nbOrigins
+    industries: industries
+    descriptors: descriptors
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    parentCompanyId: parentCompany.targetDiffbotId
+    parentCompanyName: parentCompany.name
+    ultimateParentId: ultimateParent.targetDiffbotId
+    ultimateParentName: ultimateParent.name
+    acquiredById: acquiredBy.targetDiffbotId
+    acquiredByName: acquiredBy.name
+    ceoId: ceo.targetDiffbotId
+    ceoName: ceo.name
+    stockSymbol: stock.0.symbol
+    linkedInUri: linkedInUri
+    crunchbaseUri: crunchbaseUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    diffbotUri: diffbotUri
   cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
   cost:
     bucket: diffbot
@@ -445,7 +643,28 @@
         output: 'type:Person employments.{title:or("CTO","Chief Technology Officer") isCurrent:true} locations.city.name:"Melbourne"'
     cacheSeconds: 604800
   records: "$.data[*].entity"
-  project: *personProjection
+  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
+  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'personProjection',
+  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
+  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    importance: importance
+    nbOrigins: nbOrigins
+    currentTitle: employments.0.title
+    currentEmployerId: employments.0.employer.targetDiffbotId
+    currentEmployerName: employments.0.employer.name
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    linkedInUri: linkedInUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    crunchbaseUri: crunchbaseUri
+    diffbotUri: diffbotUri
   cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
   cost:
     bucket: diffbot
