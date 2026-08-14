@@ -100,6 +100,13 @@ a non-current employment record there, so someone promoted internally comes back
 company's alum — Tim Cook is an Apple alum by this filter. The honest set is this edge MINUS
 `EMPLOYS`, which is what `TalentFlow` does, and it is a set difference Diffbot cannot express.
 
+**Every DQL operator attaches to a field.** `or(...)` is not a clause on its own —
+`industries:or("a","b")` is valid, `industries:"a" or("b","c")` is a syntax error that rejects the
+whole query. `has:` needs a terminal leaf path: `has:investments.amount.value` works,
+`has:investments` does not. Both rules are now stated in the authoring prompt and enforced by
+`check-examples.py`, because the model had learned the bare-`or()` form from an example that only
+ever showed the attached one.
+
 **`location` is the headquarters; `locations` is every office.** They differ by an `s` and answer
 different questions: `locations.city.name:"Sydney"` returns 672 companies led by Google, Microsoft,
 IBM and Siemens — every multinational with a Sydney branch — while `location.city.name:"Sydney"`
@@ -168,7 +175,15 @@ the shipped YAML, calls Diffbot, and checks that the fields the joins depend on 
 ```bash
 DIFFBOT_TOKEN=... python3 scripts/probe-live.py            # all 16, a few hundred credits
 DIFFBOT_TOKEN=... python3 scripts/probe-live.py orgsById   # or one
+DIFFBOT_TOKEN=... python3 scripts/check-examples.py        # every few-shot output, ~13 credits
 ```
+
+[`scripts/check-examples.py`](scripts/check-examples.py) executes every `keyTransform` few-shot
+OUTPUT as a real query. A few-shot example is not documentation — it is the pattern the model
+imitates, so an invalid one is a bug factory, and the damage surfaces far from the cause: the
+producer takes an HTTP 400, contributes no records, and the query reports a missing relationship
+type three hops downstream. It caught two invalid examples on its first run, including one
+(`has:investments`) that had shipped unnoticed.
 
 Last full sweep 2026-08-14: **16/16 producers healthy**, every projected field present.
 

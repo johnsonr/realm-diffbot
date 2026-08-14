@@ -643,8 +643,12 @@
         presence — "has an office in", "operates in", "hiring in". Getting this backwards is the
         difference between Sydney companies and every multinational with a Sydney branch.
       - Numeric comparisons use bare > < >= <=, e.g. nbEmployees>500. Quote string values.
-      - Use or("a","b") for alternatives and not(...) for exclusions.
-      - Use has:field to require a field be present at all.
+      - EVERY operator ATTACHES TO A FIELD with a colon. `or(...)` is not a clause on its own:
+        write `industries:or("a","b")`, NEVER `industries:"a" or("b","c")`. A bare or() is a
+        syntax error and the whole query is rejected.
+      - `not(...)` wraps a complete field clause: not(name:"Acme").
+      - `has:` needs a TERMINAL path — a leaf, not an object. `has:investments.amount.value` is
+        valid; `has:investments` is rejected.
       - Return the expression only — no commentary, no surrounding quotes, no field name prefix.
     examples:
       - input: "software companies in Sydney with more than 500 staff"
@@ -653,8 +657,10 @@
         output: 'type:Organization locations.city.name:"Sydney"'
       - input: "Australian mining companies that are publicly listed"
         output: 'type:Organization location.country.name:"Australia" industries:"Mining" isPublic:true'
-      - input: "private equity firms that have acquired someone"
-        output: 'type:Organization industries:"Private Equity" has:investments'
+      - input: "private equity firms that have made an investment"
+        output: 'type:Organization industries:"Private Equity" has:investments.amount.value'
+      - input: "real estate and property management companies in Australia"
+        output: 'type:Organization industries:or("Real Estate","Property Management","Real Estate Services") location.country.name:"Australia"'
       - input: "companies like Diffbot but not Diffbot itself"
         output: 'type:Organization industries:or("Artificial Intelligence","Web Scraping") not(name:"Diffbot")'
     cacheSeconds: 604800
@@ -729,6 +735,8 @@
       - PLACE: `location` is where the person is NOW; `locations` is everywhere they have lived.
         "in X" means where they are now, so use `location.city.name`.
       - Use or("a","b") for alternatives and not(...) for exclusions. Quote string values.
+      - EVERY operator ATTACHES TO A FIELD with a colon: `genres:or("a","b")`, never a bare
+        `or("a","b")` sitting on its own, which is a syntax error that rejects the query.
       - Return the expression only — no commentary, no surrounding quotes.
     examples:
       - input: "data scientists currently working at Diffbot"
@@ -911,6 +919,8 @@
       - genres, languages and countryOfOrigin are plain string lists.
       - Dates compare as ISO strings, e.g. releaseDate>"1999-01-01".
       - Use or("a","b") for alternatives and not(...) for exclusions. Quote string values.
+      - EVERY operator ATTACHES TO A FIELD with a colon: `genres:or("a","b")`, never a bare
+        `or("a","b")` sitting on its own, which is a syntax error that rejects the query.
       - Return the expression only — no commentary, no surrounding quotes.
     examples:
       - input: "cyberpunk films after 1990"
