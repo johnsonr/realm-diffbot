@@ -148,7 +148,7 @@
   operation: dqlSearch
   args:
     query: "type:Organization id:or({keys})"
-    size: 50
+    size: 10
   keyTemplate: '"{key}"'
   keyJoin: ","
   maxKeysPerCall: 50          # the endpoint's own result ceiling — more ids than that cannot answer
@@ -210,7 +210,7 @@
   operation: dqlSearch
   args:
     query: "type:Person id:or({keys})"
-    size: 50
+    size: 10
   keyTemplate: '"{key}"'
   keyJoin: ","
   maxKeysPerCall: 50
@@ -265,7 +265,7 @@
   operation: dqlSearch
   args:
     query: "type:Organization parentCompany.id:or({keys})"
-    size: 50
+    size: 10
   keyTemplate: '"{key}"'
   keyJoin: ","
   maxKeysPerCall: 25          # each parent can have many children; keep one call's 50-cap shared thin
@@ -327,7 +327,7 @@
   operation: dqlSearch
   args:
     query: "type:Organization competitors.id:or({keys})"
-    size: 50
+    size: 10
   keyTemplate: '"{key}"'
   keyJoin: ","
   # Per-anchor, for the same reason articlesByEntity is: the records that come back are OTHER
@@ -397,7 +397,7 @@
     # Braces here are DQL's own subquery syntax, not template placeholders — only the named
     # {keys} / {filters} slots are substituted.
     query: "type:Person employments.{employer.id:or({keys}) isCurrent:true}"
-    size: 50
+    size: 10
   keyTemplate: '"{key}"'
   keyJoin: ","
   # Echoed rather than read back off the record. `currentEmployerId` is projected from
@@ -452,7 +452,7 @@
   operation: dqlSearch
   args:
     query: "type:Article tags.uri:or({keys}) {filters} revSortBy:date"
-    size: 50
+    size: 10
   keyTemplate: '"https://diffbot.com/entity/{key}"'
   keyJoin: ","
   # ONE ANCHOR PER CALL, for two independent reasons that happen to agree.
@@ -523,7 +523,7 @@
   operation: dqlSearch
   args:
     query: "type:JobPost employer.id:or({keys}) {filters} revSortBy:date"
-    size: 50
+    size: 10
   keyTemplate: '"{key}"'
   keyJoin: ","
   maxKeysPerCall: 25
@@ -568,7 +568,7 @@
   operation: dqlSearch
   args:
     query: "type:Person employments.{employer.id:or({keys}) isCurrent:false}"
-    size: 50
+    size: 10
   keyTemplate: '"{key}"'
   keyJoin: ","
   echoKeyAs: matchedFor
@@ -619,7 +619,7 @@
   operation: dqlSearch
   args:
     query: "{keys}"
-    size: 50
+    size: 20
   keyTemplate: "{key}"
   echoKeyAs: matchedFor       # REQUIRED with a transform: identity is the ASK, never the rewrite
   keyTransform:
@@ -700,7 +700,7 @@
   operation: dqlSearch
   args:
     query: "{keys}"
-    size: 50
+    size: 20
   keyTemplate: "{key}"
   echoKeyAs: matchedFor
   keyTransform:
@@ -865,7 +865,7 @@
   operation: dqlSearch
   args:
     query: "{keys}"
-    size: 50
+    size: 20
   keyTemplate: "{key}"
   echoKeyAs: matchedFor
   keyTransform:

@@ -129,8 +129,14 @@
 
     Only ONE company's people are fetched. The other is tested against each person's own employment
     history (`employerIds`), which the record already carries — so the intersection is exact on that
-    side rather than limited to whoever happened to fall inside a 50-result page. Pass the smaller or
+    side rather than limited to whoever happened to fall inside one page. Pass the smaller or
     better-covered company as `ask`.
+
+    A BOARD SEAT IS NOT ANY TITLE CONTAINING "Director". Matching that substring catches "Director of
+    Technical Operations" and "Director of Information Security Assurance" — every middle manager in
+    the company — which is why this asks for a title containing "Board", or one ENDING in "Director"
+    (Non-Executive Director, Lead Independent Director) while excluding "Managing Director", which is
+    an executive role almost everywhere.
   params:
     ask:
       type: string
@@ -145,12 +151,18 @@
     MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(a:DiffbotOrganization)
     MATCH (a)-[:EMPLOYS]->(p:DiffbotPerson)
     WHERE b.diffbotId IN p.employerIds
-      AND ANY(t IN p.titles WHERE t CONTAINS 'Board' OR t CONTAINS 'Director')
+      AND ANY(t IN p.titles WHERE
+                t CONTAINS 'Board'
+                OR (t ENDS WITH 'Director' AND NOT t CONTAINS 'Managing'))
+    WITH p, [t IN p.titles WHERE
+               t CONTAINS 'Board'
+               OR (t ENDS WITH 'Director' AND NOT t CONTAINS 'Managing')] AS directorships
     RETURN p.name AS person,
-           [t IN p.titles WHERE t CONTAINS 'Board' OR t CONTAINS 'Director'] AS directorships,
+           directorships,
            p.employerNames AS everywhereTheySit,
            p.linkedInUri AS profile
     ORDER BY size(p.employerNames) DESC
+    LIMIT 50
 
 - name: TalentFlow
   description: |

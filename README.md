@@ -171,12 +171,21 @@ catalogue, and its corporate ownership graph — joined on an IMDb id and a comp
 requirement rather than an enforced one. Without realm-movie installed the join resolves to nothing
 and everything else here still works — a smaller answer, not a wrong one.
 
-## Cost
+## Cost — read this before running anything wide
 
-Diffbot bills **per entity exported** (~25 credits each), not per call, and plans start around
-$299/month. That changes the shape of good declarations here:
+Diffbot bills **per entity exported** (~25 credits each), not per call. A fetch asking for 50
+entities bills 50 exports whether the query returns 3 rows or 50, and a single view can fan out
+across several hops. This realm's first token was exhausted inside a day of development, and the
+wall is not gentle: Diffbot answers an exhausted quota with a plain **HTTP 429 carrying a
+`Retry-After` measured in WEEKS**, identical in shape to a per-second burst 429.
 
-- every producer caps `size` at the endpoint maximum of 50, and none pages;
+**A 429 reaches a query as ZERO ROWS plus a warning.** "No companies in Sydney" and "your quota ran
+out three weeks ago" look the same in the result table. Read `warnings` before believing an empty
+answer — this is the single most important operational fact about this realm.
+
+- `size` defaults to **10** per fetch (20 for the three plain-language searches), NOT the endpoint
+  maximum of 50. Raise it per producer when a query genuinely needs breadth and you are willing to
+  pay for it;
 - `maxAnchors` on each join is the realm's declared spending ceiling for that hop, deliberately
   tighter than the engine's default of 200 — articles and employees are capped at 10 anchors because
   they fan out hardest;
@@ -216,7 +225,11 @@ therefore projected twice: `date` for display and `dateTimestamp` (epoch millis)
 **Filter on `dateTimestamp`.** The pushdown rules still take an ISO date, because that is what DQL
 itself wants at the source.
 
-**No paging, so a wide search truncates at 50.** DQL pages by `from` offset, which the host's paging
+**A quota 429 is indistinguishable from a burst 429**, so `retry.retryOn` deliberately omits
+`rate-limited`: retrying a monthly wall three times per hop bought nothing but latency and log noise.
+The cost bucket still paces calls, and the engine backs off once on its own.
+
+**No paging, so a wide search truncates at the requested `size`.** DQL pages by `from` offset, which the host's paging
 walker (page-number or cursor) does not model. Every producer therefore fetches one page of at most 50
 entities. The response's own `hits` field reports what the index actually matched, so the truncation is
 visible in the raw response — but it is not currently surfaced as a `PARTIAL_RESULT` warning, which

@@ -53,16 +53,21 @@ exports:
   - FilmCast
   - MyFilmsByOwner
 
-# Diffbot returns 429 under burst rather than queueing, and an ownership walk fans out across
-# several sequential hops inside one budget — so a hop that loses to a rate limit would truncate the
-# chain and report a shorter one, which is the failure that reads as an answer. Retrying the
-# rate-limited class costs a pause; not retrying costs a wrong ownership chain. deadlineShare keeps
-# any single hop from eating the whole walk's budget.
+# NOTE the absence of `rate-limited` from retryOn, which is deliberate and was learned the hard way.
+#
+# Diffbot answers BOTH a per-second burst AND an exhausted monthly credit quota with a plain 429. The
+# status code cannot tell them apart — only Retry-After can, and it read "26 days" when this realm's
+# quota ran out. Retrying that class meant three calls, three backoffs and three log storms per
+# producer against a wall that would not move until next month, on every hop of every query.
+#
+# A transient burst is already handled without retries: the cost bucket paces calls, and the engine
+# backs off once on its own. So the remaining classes here are the ones where a second attempt can
+# actually succeed.
 retry:
   attempts: 3
   baseBackoff: 500ms
   multiplier: 2.0
   jitter: 0.25
   maxBackoff: 5s
-  retryOn: [timeout, gateway, connection, rate-limited]
+  retryOn: [timeout, gateway, connection]
   deadlineShare: 0.25
