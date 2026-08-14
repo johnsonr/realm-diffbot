@@ -50,6 +50,7 @@ exports:
   - ExecutiveExposure
   - HiringSignals
   - MovieSearch
+  - RepeatCollaborators
   - FilmOwnership
   - DirectorFilmography
   - FilmCast

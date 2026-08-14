@@ -424,6 +424,47 @@
     MATCH (:DiffbotMovieSearch {ask: $ask})-[:MATCHED]->(f:DiffbotMovie)
     RETURN f
 
+- name: RepeatCollaborators
+  description: |
+    Actors who keep turning up in one director's films — the ensemble a director actually works with,
+    rather than the one a press profile claims.
+
+    COUNT DISTINCT TITLES, NOT RECORDS. Diffbot holds roughly two records for most films: a search
+    for Christopher Nolan's work returns 32 records for 18 distinct titles, with Interstellar,
+    Inception, Memento, Tenet and nine others each appearing twice. Counting rows therefore
+    overstates every collaboration — Michael Caine reads as 15 Nolan films instead of 8.
+
+    Diffbot's own aggregation answers this shape in a single call
+    (`facet:castmembers.castmember.name`) and returns exactly those inflated numbers, because a
+    facet counts records and offers no way to dedupe. It also returns only a value and a count: no
+    titles, so nothing in the answer reveals that anything is wrong. Returning `films` alongside the
+    count is what makes the duplication visible, and DISTINCT is what makes the number right.
+
+    Under-reports in the other direction: HAS_CAST is keyed on the character name, so a credit with
+    no recorded character is absent. Read this as "at least this many", and check the echoed DQL is a
+    director match rather than a title match.
+  params:
+    ask:
+      type: string
+      default: "films directed by Christopher Nolan"
+      description: "The body of work, in plain language. Phrase it as a DIRECTOR search so the rewrite targets directors.name."
+    minFilms:
+      type: int
+      default: 3
+      description: "Only actors appearing in at least this many DISTINCT films."
+  cypher: |
+    MATCH (:DiffbotMovieSearch {ask: $ask})-[:MATCHED]->(m:DiffbotMovie)
+    MATCH (m)-[:HAS_CAST]->(c:DiffbotCastMember)
+    WITH c.actorName AS actor,
+         collect(DISTINCT m.name) AS films,
+         count(DISTINCT m.name) AS filmCount
+    WHERE filmCount >= $minFilms
+    RETURN actor,
+           filmCount,
+           films
+    ORDER BY filmCount DESC, actor
+    LIMIT 200
+
 - name: FilmOwnership
   description: |
     Who actually owns the studios behind a set of films. Three questions stacked: a film search, a
