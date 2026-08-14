@@ -54,20 +54,33 @@
       maxFanoutTotal: 200
       brings:
         # The cast as NODES, not as two parallel lists. `castNames` and `characterNames` are both
-        # projected for display, but they are NOT positionally aligned and must never be zipped:
-        # `[*]` drops elements whose field is absent, so a film with 31 cast members and 20 recorded
-        # characters yields lists of 31 and 20 — every pairing after the first gap is wrong, and an
-        # index past the shorter list fails the query outright. Measured on "The Odyssey" (2026):
-        # 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
+        # projected on the film for display, but they are NOT positionally aligned and must never be
+        # zipped: `[*]` drops elements whose field is absent, so a film with 31 cast members and 20
+        # recorded characters yields lists of 31 and 20 — every pairing after the first gap is wrong,
+        # and an index past the shorter list fails the query outright. Measured on "The Odyssey"
+        # (2026): 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
         #
-        # A brought child keeps the actor and the character on ONE record, where they belong.
+        # `id` IS `characterName`, NOT the actor, and that is forced rather than chosen. The host
+        # reads a brought child's id off the RAW record BEFORE applying `project`, and skips the
+        # child silently when it is absent:
+        #     val childId = child[brought.id]?.toString() ?: continue
+        # The raw entry is { castmember: {name}, characterName, characterLink }, so the only
+        # top-level scalars available as an identity are characterName and characterLink. `id:
+        # actorName` named a PROJECTED field, matched nothing on every child, and produced no edges
+        # at all — the query then reported "relationship type HAS_CAST is not available".
+        #
+        # The cost of keying on the character: a credit with no recorded character has no id and is
+        # dropped, so this edge carries only the credits where a role is known — 20 of 31 on The
+        # Odyssey. That is the right trade for a view whose whole purpose is the actor/character
+        # pairing (a credit with no character contributes nothing to it), and the COMPLETE cast list
+        # is still on the film as `castNames`. Two actors sharing a character name in one film would
+        # merge; scope cast queries to a film and it stays exact.
         - childType: DiffbotCastMember
           relationship: HAS_CAST
           records: "$.castmembers[*]"
-          id: actorName
+          id: characterName
           project:
             actorName: castmember.name
-            character: characterName
             characterLink: characterLink
 
 
@@ -84,20 +97,33 @@
       maxFanoutTotal: 50
       brings:
         # The cast as NODES, not as two parallel lists. `castNames` and `characterNames` are both
-        # projected for display, but they are NOT positionally aligned and must never be zipped:
-        # `[*]` drops elements whose field is absent, so a film with 31 cast members and 20 recorded
-        # characters yields lists of 31 and 20 — every pairing after the first gap is wrong, and an
-        # index past the shorter list fails the query outright. Measured on "The Odyssey" (2026):
-        # 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
+        # projected on the film for display, but they are NOT positionally aligned and must never be
+        # zipped: `[*]` drops elements whose field is absent, so a film with 31 cast members and 20
+        # recorded characters yields lists of 31 and 20 — every pairing after the first gap is wrong,
+        # and an index past the shorter list fails the query outright. Measured on "The Odyssey"
+        # (2026): 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
         #
-        # A brought child keeps the actor and the character on ONE record, where they belong.
+        # `id` IS `characterName`, NOT the actor, and that is forced rather than chosen. The host
+        # reads a brought child's id off the RAW record BEFORE applying `project`, and skips the
+        # child silently when it is absent:
+        #     val childId = child[brought.id]?.toString() ?: continue
+        # The raw entry is { castmember: {name}, characterName, characterLink }, so the only
+        # top-level scalars available as an identity are characterName and characterLink. `id:
+        # actorName` named a PROJECTED field, matched nothing on every child, and produced no edges
+        # at all — the query then reported "relationship type HAS_CAST is not available".
+        #
+        # The cost of keying on the character: a credit with no recorded character has no id and is
+        # dropped, so this edge carries only the credits where a role is known — 20 of 31 on The
+        # Odyssey. That is the right trade for a view whose whole purpose is the actor/character
+        # pairing (a credit with no character contributes nothing to it), and the COMPLETE cast list
+        # is still on the film as `castNames`. Two actors sharing a character name in one film would
+        # merge; scope cast queries to a film and it stays exact.
         - childType: DiffbotCastMember
           relationship: HAS_CAST
           records: "$.castmembers[*]"
-          id: actorName
+          id: characterName
           project:
             actorName: castmember.name
-            character: characterName
             characterLink: characterLink
 
 
@@ -114,15 +140,17 @@
 - name: DiffbotCastMember
   userAnchor: false
   description: |
-    One actor's role in a film — the actor and the character they played, kept on a single record.
+    One credited role in a film — the character, and the actor who played them.
 
     Brought with the film in the same fetch rather than resolved separately, so a cast list costs no
-    extra calls. Identity is the actor's name, so within one film each row is exact; a query holding
-    several films at once merges an actor appearing in more than one, and the `character` shown is
-    then only one of their roles. Scope cast queries to a film.
+    extra calls. Identity is the CHARACTER, which means a credit with no recorded character does not
+    appear here at all: roughly a third of credits on a well-covered film. For the complete cast use
+    the film's own `castNames`; use this edge when the pairing is the point.
+
+    Scope cast queries to one film. Across several films, two roles sharing a character name merge.
   properties:
-    actorName:
+    characterName:
       identity: true
-      description: "The performer's name."
-    character: "The character played, when the source records one. Often absent — roughly a third of credits on a well-covered film."
+      description: "The character played. The identity, so every row has one."
+    actorName: "The performer's name."
     characterLink: "External URI for the character, usually Wikidata, when present."
