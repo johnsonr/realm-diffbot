@@ -29,9 +29,10 @@ exports:
   - DiffbotMovie
   - DiffbotCastMember
   - DiffbotCompany
-  - DiffbotOrgSearch
-  - DiffbotPersonSearch
-  - DiffbotMovieSearch
+  - DiffbotIndustry
+  - DiffbotJobTitle
+  - DiffbotGenre
+  - DiffbotDirector
   - CompanyProfile
   - CompanySearch
   - CompanyOwnership

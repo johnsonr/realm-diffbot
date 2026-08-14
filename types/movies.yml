@@ -45,13 +45,87 @@
     matchedFor: "The question or IMDb id this record was fetched for, echoed so the join matches what was asked."
 
   virtualJoins:
-    - anchorLabel: DiffbotMovieSearch
-      relationship: MATCHED
-      keyField: ask
+    # Two structured entry points, no generated query. The genre or the director IS the key; dates
+    # and titles narrow through pushdown rules.
+    #   MATCH (:DiffbotGenre {name:'cyberpunk'})-[:HAS_FILM]->(f) WHERE f.releaseDate > '1990-01-01'
+    #   MATCH (:DiffbotDirector {name:'Christopher Nolan'})-[:DIRECTED]->(f)
+    - anchorLabel: DiffbotGenre
+      relationship: HAS_FILM
+      keyField: name
       recordKeyField: matchedFor
-      producer: moviesByAsk
+      producer: moviesByGenre
       maxAnchors: 4
       maxFanoutTotal: 200
+      brings:
+        # The cast as NODES, not as two parallel lists. `castNames` and `characterNames` are both
+        # projected on the film for display, but they are NOT positionally aligned and must never be
+        # zipped: `[*]` drops elements whose field is absent, so a film with 31 cast members and 20
+        # recorded characters yields lists of 31 and 20 — every pairing after the first gap is wrong,
+        # and an index past the shorter list fails the query outright. Measured on "The Odyssey"
+        # (2026): 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
+        #
+        # `id` IS `characterName`, NOT the actor, and that is forced rather than chosen. The host
+        # reads a brought child's id off the RAW record BEFORE applying `project`, and skips the
+        # child silently when it is absent:
+        #     val childId = child[brought.id]?.toString() ?: continue
+        # The raw entry is { castmember: {name}, characterName, characterLink }, so the only
+        # top-level scalars available as an identity are characterName and characterLink. `id:
+        # actorName` named a PROJECTED field, matched nothing on every child, and produced no edges
+        # at all — the query then reported "relationship type HAS_CAST is not available".
+        #
+        # The cost of keying on the character: a credit with no recorded character has no id and is
+        # dropped, so this edge carries only the credits where a role is known — 20 of 31 on The
+        # Odyssey. That is the right trade for a view whose whole purpose is the actor/character
+        # pairing (a credit with no character contributes nothing to it), and the COMPLETE cast list
+        # is still on the film as `castNames`. Two actors sharing a character name in one film would
+        # merge; scope cast queries to a film and it stays exact.
+        - childType: DiffbotCastMember
+          relationship: HAS_CAST
+          records: "$.castmembers[*]"
+          id: characterName
+          project:
+            actorName: castmember.name
+            characterLink: characterLink
+
+
+    - anchorLabel: DiffbotDirector
+      relationship: DIRECTED
+      keyField: name
+      recordKeyField: matchedFor
+      producer: moviesByDirector
+      maxAnchors: 4
+      maxFanoutTotal: 200
+      brings:
+        # The cast as NODES, not as two parallel lists. `castNames` and `characterNames` are both
+        # projected on the film for display, but they are NOT positionally aligned and must never be
+        # zipped: `[*]` drops elements whose field is absent, so a film with 31 cast members and 20
+        # recorded characters yields lists of 31 and 20 — every pairing after the first gap is wrong,
+        # and an index past the shorter list fails the query outright. Measured on "The Odyssey"
+        # (2026): 31 vs 20. On "Ultraman Tiga": 4 vs 0, so characterNames is absent entirely.
+        #
+        # `id` IS `characterName`, NOT the actor, and that is forced rather than chosen. The host
+        # reads a brought child's id off the RAW record BEFORE applying `project`, and skips the
+        # child silently when it is absent:
+        #     val childId = child[brought.id]?.toString() ?: continue
+        # The raw entry is { castmember: {name}, characterName, characterLink }, so the only
+        # top-level scalars available as an identity are characterName and characterLink. `id:
+        # actorName` named a PROJECTED field, matched nothing on every child, and produced no edges
+        # at all — the query then reported "relationship type HAS_CAST is not available".
+        #
+        # The cost of keying on the character: a credit with no recorded character has no id and is
+        # dropped, so this edge carries only the credits where a role is known — 20 of 31 on The
+        # Odyssey. That is the right trade for a view whose whole purpose is the actor/character
+        # pairing (a credit with no character contributes nothing to it), and the COMPLETE cast list
+        # is still on the film as `castNames`. Two actors sharing a character name in one film would
+        # merge; scope cast queries to a film and it stays exact.
+        - childType: DiffbotCastMember
+          relationship: HAS_CAST
+          records: "$.castmembers[*]"
+          id: characterName
+          project:
+            actorName: castmember.name
+            characterLink: characterLink
+
       brings:
         # The cast as NODES, not as two parallel lists. `castNames` and `characterNames` are both
         # projected on the film for display, but they are NOT positionally aligned and must never be
@@ -127,15 +201,32 @@
             characterLink: characterLink
 
 
-- name: DiffbotMovieSearch
+- name: DiffbotGenre
   userAnchor: false
   description: |
-    A film search against the Diffbot Knowledge Graph, seeded from the question itself. Traverse
-    MATCHED to run it. Capped at 50 results — a sample of the index, not a filmography.
+    A Diffbot genre label, used as a search anchor. Traverse HAS_FILM for films in it and narrow with
+    predicates on the film — releaseDate pushes to the source.
+
+    Diffbot's genres are fine-grained and overlapping: one film carries 'cyberpunk', 'action
+    thriller', 'science fiction film' and 'film noir' at once, so a genre is a facet of a film rather
+    than a partition of the catalogue.
   properties:
-    ask:
+    name:
       identity: true
-      description: "The question, in plain language. Rewritten into DQL at fetch time."
+      description: "The genre label as Diffbot spells it, e.g. 'cyberpunk', 'science fiction film'."
+
+- name: DiffbotDirector
+  userAnchor: false
+  description: |
+    A director's name, used as a search anchor over films they directed. Traverse DIRECTED for the
+    filmography.
+
+    Matched on the name as the film records spell it, since a film's directors are names rather than
+    resolved entity ids. A director credited under a variant spelling will be missed.
+  properties:
+    name:
+      identity: true
+      description: "The director's name as it appears in film credits."
 
 - name: DiffbotCastMember
   userAnchor: false

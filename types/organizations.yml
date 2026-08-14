@@ -210,19 +210,21 @@
       maxFanoutTotal: 10
 
     # ------------------------------------------------------------------------------------------
-    # Search — no anchor in the graph at all.
+    # Structured search — no anchor in the graph, and no model in the fetch.
     # ------------------------------------------------------------------------------------------
-    # The entry point for a question about companies the user has never corresponded with. The
-    # scope node is literal-seeded from the query itself, so nothing needs to exist first:
-    #   MATCH (:DiffbotOrgSearch {ask:'mining companies in WA over 500 staff'})-[:MATCHED]->(o)
-    #   RETURN o.name, o.nbEmployees
-    # and from there every hop above is available — which is the whole point: a search RESULT is a
-    # bound anchor, so ownership walks and hiring signals compose straight onto it.
-    - anchorLabel: DiffbotOrgSearch
-      relationship: MATCHED
-      keyField: ask
+    # The industry IS the key: it drives the source query directly. Everything else the caller wants
+    # is an ordinary Cypher predicate that `pushdown:` renders into DQL by rule —
+    #
+    #   MATCH (:DiffbotIndustry {name:'Real Estate'})-[:HAS_COMPANY]->(o:DiffbotOrganization)
+    #   WHERE o.country = 'Australia' AND o.nbEmployees > 500
+    #
+    # so nothing is generated and a malformed source query cannot be produced. Predicates without a
+    # rule (or whose value fails its pattern) filter graph-side instead: same rows, higher cost.
+    - anchorLabel: DiffbotIndustry
+      relationship: HAS_COMPANY
+      keyField: name
       recordKeyField: matchedFor
-      producer: orgsByAsk
+      producer: orgsByIndustry
       maxAnchors: 4
       maxFanoutTotal: 200
 
@@ -241,15 +243,19 @@
       identity: true
       description: "The company name, as a person would write it."
 
-# A literal-seeded query scope, not a mirrored search index. Holds the question; the DQL it becomes
-# is the producer's business, and the rewrite is echoed back so it can be shown and argued with.
-- name: DiffbotOrgSearch
+# A literal-seeded industry, and the entry point for "companies like this". Its name is sent to the
+# source verbatim as `industries:"<name>"`, so it must be an industry LABEL Diffbot uses ("Real
+# Estate", "Software Companies", "Mining"), not a description of one.
+- name: DiffbotIndustry
   userAnchor: false
   description: |
-    A company search against the Diffbot Knowledge Graph, seeded from the question itself. Traverse
-    MATCHED to run it. Results are Diffbot's ranking of its own index, capped at 50 per search —
-    a sample of what matched, not a census of what exists.
+    A Diffbot industry label, used as a search anchor. Traverse HAS_COMPANY to find companies in it,
+    and narrow with ordinary predicates on the company — country, city, headcount, isPublic — which
+    are pushed to the source rather than applied after fetching.
+
+    Matching is loose: "Real Estate" alone reports ~2.5M companies, so a bare traversal is a sample
+    of the index rather than a census. Always narrow it.
   properties:
-    ask:
+    name:
       identity: true
-      description: "The question, in plain language. Rewritten into DQL at fetch time."
+      description: "The industry label as Diffbot spells it, e.g. 'Real Estate', 'Software Companies', 'Mining'."

@@ -606,192 +606,6 @@
     bucket: diffbot
     rate: "5/sec"
     yield: low
-
-# ---------------------------------------------------------------------------------------------
-# Free-text search — a question, rewritten into DQL.
-# ---------------------------------------------------------------------------------------------
-
-# DQL is a source dialect, not a user language, and the failure mode of getting it slightly wrong is
-# the dangerous one: a malformed field path or a lowercase operator returns a PLAUSIBLE number of
-# wrong rows rather than an error. So the rewrite is declared here, on the producer, where every
-# surface — chat, views, MCP — inherits the same translation, rather than in a lens where each
-# surface would reimplement it.
-#
-# The three guarantees the host gives this: the rewrite is CACHED per phrase (the same question
-# searches the same way twice), ECHOED so the executed DQL can be shown and argued with, and FALLS
-# BACK VERBATIM on failure — never to an empty result that would read as "there is nothing".
-- name: orgsByAsk
-  kind: remote
-  operation: dqlSearch
-  args:
-    query: "{keys}"
-    size: 20
-  keyTemplate: "{key}"
-  echoKeyAs: matchedFor       # REQUIRED with a transform: identity is the ASK, never the rewrite
-  keyTransform:
-    kind: ai
-    instruction: |
-      Rewrite the request as a single Diffbot Query Language expression over Organizations.
-
-      Rules:
-      - Always start with `type:Organization`.
-      - Filter with dot-paths onto the record's own fields. Use only fields you are confident
-        Diffbot's Organization ontology defines.
-      - PLACE: `location` is the HEADQUARTERS; `locations` is EVERY office. "companies in X",
-        "X companies" and "based in X" mean the HQ, so use `location.city.name` /
-        `location.country.name`. Use the plural `locations.` ONLY when the request is about
-        presence — "has an office in", "operates in", "hiring in". Getting this backwards is the
-        difference between Sydney companies and every multinational with a Sydney branch.
-      - Numeric comparisons use bare > < >= <=, e.g. nbEmployees>500. Quote string values.
-      - EVERY operator ATTACHES TO A FIELD with a colon. `or(...)` is not a clause on its own:
-        write `industries:or("a","b")`, NEVER `industries:"a" or("b","c")`. A bare or() is a
-        syntax error and the whole query is rejected.
-      - `not(...)` wraps a complete field clause: not(name:"Acme").
-      - `has:` needs a TERMINAL path — a leaf, not an object. `has:investments.amount.value` is
-        valid; `has:investments` is rejected.
-      - Return the expression only — no commentary, no surrounding quotes, no field name prefix.
-    examples:
-      - input: "software companies in Sydney with more than 500 staff"
-        output: 'type:Organization location.city.name:"Sydney" industries:"Software" nbEmployees>500'
-      - input: "companies with an office in Sydney"
-        output: 'type:Organization locations.city.name:"Sydney"'
-      - input: "Australian mining companies that are publicly listed"
-        output: 'type:Organization location.country.name:"Australia" industries:"Mining" isPublic:true'
-      - input: "private equity firms that have made an investment"
-        output: 'type:Organization industries:"Private Equity" has:investments.amount.value'
-      - input: "real estate and property management companies in Australia"
-        output: 'type:Organization industries:or("Real Estate","Property Management","Real Estate Services") location.country.name:"Australia"'
-      - input: "companies like Diffbot but not Diffbot itself"
-        output: 'type:Organization industries:or("Artificial Intelligence","Web Scraping") not(name:"Diffbot")'
-    cacheSeconds: 604800
-  records: "$.data[*].entity"
-  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
-  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'orgProjection',
-  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
-  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
-  project:
-    diffbotId: id
-    name: name
-    homepageUri: homepageUri
-    summary: summary
-    nbEmployees: nbEmployees
-    nbEmployeesMin: nbEmployeesMin
-    nbEmployeesMax: nbEmployeesMax
-    revenue: revenue.value
-    revenueCurrency: revenue.currency
-    foundingDate: foundingDate.str
-    foundingDateTimestamp: foundingDate.timestamp
-    isPublic: isPublic
-    isAcquired: isAcquired
-    isDissolved: isDissolved
-    isNonProfit: isNonProfit
-    importance: importance
-    nbOrigins: nbOrigins
-    industries: industries
-    descriptors: descriptors
-    city: location.city.name
-    region: location.region.name
-    country: location.country.name
-    parentCompanyId: parentCompany.targetDiffbotId
-    parentCompanyName: parentCompany.name
-    ultimateParentId: ultimateParent.targetDiffbotId
-    ultimateParentName: ultimateParent.name
-    acquiredById: acquiredBy.targetDiffbotId
-    acquiredByName: acquiredBy.name
-    ceoId: ceo.targetDiffbotId
-    ceoName: ceo.name
-    stockSymbol: stock.symbol
-    stockExchange: stock.exchange
-    capitalization: capitalization.value
-    linkedInUri: linkedInUri
-    crunchbaseUri: crunchbaseUri
-    githubUri: githubUri
-    twitterUri: twitterUri
-    diffbotUri: diffbotUri
-  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
-  cost:
-    bucket: diffbot
-    rate: "5/sec"
-    yield: medium
-
-- name: peopleByAsk
-  kind: remote
-  operation: dqlSearch
-  args:
-    query: "{keys}"
-    size: 20
-  keyTemplate: "{key}"
-  echoKeyAs: matchedFor
-  keyTransform:
-    kind: ai
-    instruction: |
-      Rewrite the request as a single Diffbot Query Language expression over People.
-
-      Rules:
-      - Always start with `type:Person`.
-      - Employment predicates go inside a subquery on the collection:
-        employments.{title:"..." isCurrent:true}. Use isCurrent:true unless the request is
-        explicitly about past roles.
-      - PLACE: `location` is where the person is NOW; `locations` is everywhere they have lived.
-        "in X" means where they are now, so use `location.city.name`.
-      - Use or("a","b") for alternatives and not(...) for exclusions. Quote string values.
-      - EVERY operator ATTACHES TO A FIELD with a colon: `genres:or("a","b")`, never a bare
-        `or("a","b")` sitting on its own, which is a syntax error that rejects the query.
-      - Return the expression only — no commentary, no surrounding quotes.
-    examples:
-      - input: "data scientists currently working at Diffbot"
-        output: 'type:Person employments.{title:or("data scientist","research scientist") employer.name:"Diffbot" isCurrent:true}'
-      - input: "people who used to work at Oracle and now work somewhere else"
-        output: 'type:Person employments.{employer.name:"Oracle" isCurrent:false}'
-      - input: "CTOs in Melbourne"
-        output: 'type:Person employments.{title:or("CTO","Chief Technology Officer") isCurrent:true} location.city.name:"Melbourne"'
-    cacheSeconds: 604800
-  records: "$.data[*].entity"
-  # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
-  # anchors only for SCALARS: an alias to a mapping arrives as the bare string 'personProjection',
-  # which cannot bind to Map<String,String>, and one unbindable entry fails the WHOLE file — so
-  # every producer in it silently disappears and the first fetch reports 'Unknown producer'.
-  project:
-    diffbotId: id
-    name: name
-    summary: summary
-    description: description
-    importance: importance
-    nbOrigins: nbOrigins
-    currentTitle: employments.0.title
-    currentEmployerId: employments.0.employer.targetDiffbotId
-    currentEmployerName: employments.0.employer.name
-    # The whole career, flattened. `[*]` lifts an array into a top-level LIST property, which is what
-    # makes a career graph possible: employerIds keys a per-element join, so one person node fans out
-    # to every company they have worked for instead of only the most recent.
-    employerIds: employments[*].employer.targetDiffbotId
-    employerNames: employments[*].employer.name
-    titles: employments[*].title
-    city: location.city.name
-    region: location.region.name
-    country: location.country.name
-    linkedInUri: linkedInUri
-    githubUri: githubUri
-    twitterUri: twitterUri
-    crunchbaseUri: crunchbaseUri
-    diffbotUri: diffbotUri
-  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
-  cost:
-    bucket: diffbot
-    rate: "5/sec"
-    yield: medium
-
-# ---------------------------------------------------------------------------------------------
-# Film. Diffbot's `Movie` type is not in its published ontology list, but DQL answers it — 2.5M
-# entities carrying directors, cast with character names, writers, genres, production companies,
-# release date, IMDb link and Wikipedia pageview trend.
-# ---------------------------------------------------------------------------------------------
-
-# Resolve a company by NAME, precisely. Not a DQL name search: `type:Organization name:"Warner Bros.
-# Entertainment"` returns 127 hits including Telepictures and WBSL, and since the join links every
-# returned record to the anchor, that would attribute a film to whichever unrelated company shared a
-# word. Enhance SCORES candidates and returns the single best above a threshold — which is the entity
-# resolution problem, not a search problem.
 - name: orgEnhanceByName
   kind: remote
   operation: enhance
@@ -898,71 +712,6 @@
     bucket: diffbot
     rate: "5/sec"
     yield: medium
-
-- name: moviesByAsk
-  kind: remote
-  operation: dqlSearch
-  args:
-    query: "{keys}"
-    size: 20
-  keyTemplate: "{key}"
-  echoKeyAs: matchedFor
-  keyTransform:
-    kind: ai
-    instruction: |
-      Rewrite the request as a single Diffbot Query Language expression over films.
-
-      Rules:
-      - Always start with `type:Movie`.
-      - Reference fields hold NAMES, not ids: directors.name, writers.name,
-        castmembers.castmember.name, productionCompanies.name.
-      - genres, languages and countryOfOrigin are plain string lists.
-      - Dates compare as ISO strings, e.g. releaseDate>"1999-01-01".
-      - Use or("a","b") for alternatives and not(...) for exclusions. Quote string values.
-      - EVERY operator ATTACHES TO A FIELD with a colon: `genres:or("a","b")`, never a bare
-        `or("a","b")` sitting on its own, which is a syntax error that rejects the query.
-      - Return the expression only — no commentary, no surrounding quotes.
-    examples:
-      - input: "cyberpunk films after 1990"
-        output: 'type:Movie genres:"cyberpunk" releaseDate>"1990-01-01"'
-      - input: "films directed by Lana Wachowski"
-        output: 'type:Movie directors.name:"Lana Wachowski"'
-      - input: "Australian science fiction films"
-        output: 'type:Movie countryOfOrigin:"Australia" genres:"science fiction film"'
-      - input: "films with Laurence Fishburne that are not sequels"
-        output: 'type:Movie castmembers.castmember.name:"Laurence Fishburne" not(name:"Reloaded")'
-    cacheSeconds: 604800
-  records: "$.data[*].entity"
-  project:
-    diffbotId: id
-    name: name
-    summary: summary
-    description: description
-    releaseDate: releaseDate.str
-    releaseDateTimestamp: releaseDate.timestamp
-    genres: genres
-    languages: languages
-    countryOfOrigin: countryOfOrigin
-    directorNames: directors[*].name
-    writerNames: writers[*].name
-    castNames: castmembers[*].castmember.name
-    characterNames: castmembers[*].characterName
-    productionCompanyNames: productionCompanies[*].name
-    imdbUri: imdbUri
-    importance: importance
-    nbOrigins: nbOrigins
-    wikipediaPageviews: wikipediaPageviews
-    wikipediaPageviewsLastYear: wikipediaPageviewsLastYear
-    diffbotUri: diffbotUri
-  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
-  cost:
-    bucket: diffbot
-    rate: "5/sec"
-    yield: medium
-
-# The CROSS-REALM bridge: realm-movie holds films the user has rated, keyed by IMDb id, and Diffbot
-# carries the same id as `imdbUri`. That one shared key is what lets a personal ratings list reach a
-# corporate ownership graph.
 - name: moviesByImdbId
   kind: remote
   operation: dqlSearch
@@ -1001,3 +750,241 @@
     bucket: diffbot
     rate: "5/sec"
     yield: high
+
+# ---------------------------------------------------------------------------------------------
+# Structured search. NO MODEL IN THE FETCH PATH.
+# ---------------------------------------------------------------------------------------------
+#
+# These replace three producers that asked an LLM to rewrite plain English into DQL. That design put
+# a model between the query and the source, and it failed in every way the arrangement invites: it
+# emitted `industries:"Real Estate" or("Property Management",...)` — a bare or() with no field
+# attached — which Diffbot rejected with a 400, so the producer contributed no records and the error
+# surfaced three hops away as a missing relationship type. The bad rewrite was then CACHED for a
+# week, so fixing the prompt could not heal the phrase that had broken.
+#
+# The engine already had the deterministic mechanism. The anchor's identity supplies the primary
+# filter and `pushdown:` renders the query's OWN predicates into DQL by rule, so
+#
+#   MATCH (:DiffbotIndustry {name:'Real Estate'})-[:HAS_COMPANY]->(o:DiffbotOrganization)
+#   WHERE o.country = 'Australia' AND o.nbEmployees > 500
+#
+# sends `type:Organization industries:"Real Estate" location.country.name:"Australia" nbEmployees>500`
+# with nothing generated. The LLM writes Cypher, which is the one language it should write, and a
+# malformed source query stops being expressible.
+#
+# CORRECTNESS NEVER DEPENDS ON PUSHDOWN. Every rule carries a valuePattern, and a value that fails it
+# is left to filter graph-side rather than pasted into DQL it would break — same rows, lower cost.
+
+- name: orgsByIndustry
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Organization industries:{keys} {filters}"
+    size: 20
+  keyTemplate: '"{key}"'
+  # One industry per call. Diffbot's industry matching is loose — `industries:"Real Estate"` and a
+  # three-way or() over related labels both report ~2.5M hits — so batching several into one ranked,
+  # capped list would let the broadest label crowd the others out.
+  batchSafe: false
+  echoKeyAs: matchedFor
+  records: "$.data[*].entity"
+  pushdown:
+    - property: country
+      op: EQUALS
+      qualifier: 'location.country.name:"{value}"'
+      valuePattern: "^([A-Za-z .'-]+)$"
+    - property: city
+      op: EQUALS
+      qualifier: 'location.city.name:"{value}"'
+      valuePattern: "^([A-Za-z .'-]+)$"
+    - property: region
+      op: EQUALS
+      qualifier: 'location.region.name:"{value}"'
+      valuePattern: "^([A-Za-z .'-]+)$"
+    - property: nbEmployees
+      op: GREATER_THAN
+      qualifier: "nbEmployees>{value}"
+      valuePattern: "^([0-9]+)$"
+    - property: nbEmployees
+      op: LESS_THAN
+      qualifier: "nbEmployees<{value}"
+      valuePattern: "^([0-9]+)$"
+    - property: isPublic
+      op: EQUALS
+      qualifier: "isPublic:{value}"
+      valuePattern: "^(true|false)$"
+    - property: isAcquired
+      op: EQUALS
+      qualifier: "isAcquired:{value}"
+      valuePattern: "^(true|false)$"
+    - property: name
+      op: CONTAINS
+      qualifier: 'name:"{value}"'
+      valuePattern: "^([A-Za-z0-9 .,'&-]+)$"
+  project:
+    diffbotId: id
+    name: name
+    homepageUri: homepageUri
+    summary: summary
+    nbEmployees: nbEmployees
+    nbEmployeesMin: nbEmployeesMin
+    nbEmployeesMax: nbEmployeesMax
+    revenue: revenue.value
+    revenueCurrency: revenue.currency
+    foundingDate: foundingDate.str
+    foundingDateTimestamp: foundingDate.timestamp
+    isPublic: isPublic
+    isAcquired: isAcquired
+    isDissolved: isDissolved
+    isNonProfit: isNonProfit
+    importance: importance
+    nbOrigins: nbOrigins
+    industries: industries
+    descriptors: descriptors
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    parentCompanyId: parentCompany.targetDiffbotId
+    parentCompanyName: parentCompany.name
+    ultimateParentId: ultimateParent.targetDiffbotId
+    ultimateParentName: ultimateParent.name
+    acquiredById: acquiredBy.targetDiffbotId
+    acquiredByName: acquiredBy.name
+    ceoId: ceo.targetDiffbotId
+    ceoName: ceo.name
+    stockSymbol: stock.symbol
+    stockExchange: stock.exchange
+    capitalization: capitalization.value
+    linkedInUri: linkedInUri
+    crunchbaseUri: crunchbaseUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
+  cost: { bucket: diffbot, rate: "5/sec", yield: medium }
+
+- name: peopleByTitle
+  kind: remote
+  operation: dqlSearch
+  args:
+    # Braces here are DQL's own subquery syntax; only {keys} and {filters} are substituted.
+    query: "type:Person employments.{title:{keys} isCurrent:true} {filters}"
+    size: 20
+  keyTemplate: '"{key}"'
+  batchSafe: false
+  echoKeyAs: matchedFor
+  records: "$.data[*].entity"
+  pushdown:
+    - property: city
+      op: EQUALS
+      qualifier: 'location.city.name:"{value}"'
+      valuePattern: "^([A-Za-z .'-]+)$"
+    - property: country
+      op: EQUALS
+      qualifier: 'location.country.name:"{value}"'
+      valuePattern: "^([A-Za-z .'-]+)$"
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    importance: importance
+    nbOrigins: nbOrigins
+    currentTitle: employments.0.title
+    currentEmployerId: employments.0.employer.targetDiffbotId
+    currentEmployerName: employments.0.employer.name
+    employerIds: employments[*].employer.targetDiffbotId
+    employerNames: employments[*].employer.name
+    titles: employments[*].title
+    city: location.city.name
+    region: location.region.name
+    country: location.country.name
+    linkedInUri: linkedInUri
+    githubUri: githubUri
+    twitterUri: twitterUri
+    crunchbaseUri: crunchbaseUri
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
+  cost: { bucket: diffbot, rate: "5/sec", yield: medium }
+
+- name: moviesByGenre
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Movie genres:{keys} {filters}"
+    size: 20
+  keyTemplate: '"{key}"'
+  batchSafe: false
+  echoKeyAs: matchedFor
+  records: "$.data[*].entity"
+  pushdown:
+    - property: releaseDate
+      op: GREATER_THAN
+      qualifier: 'releaseDate>"{value}"'
+      valuePattern: '^(\d{4}-\d{2}-\d{2})'
+    - property: releaseDate
+      op: LESS_THAN
+      qualifier: 'releaseDate<"{value}"'
+      valuePattern: '^(\d{4}-\d{2}-\d{2})'
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    releaseDate: releaseDate.str
+    releaseDateTimestamp: releaseDate.timestamp
+    genres: genres
+    languages: languages
+    countryOfOrigin: countryOfOrigin
+    directorNames: directors[*].name
+    writerNames: writers[*].name
+    castNames: castmembers[*].castmember.name
+    characterNames: castmembers[*].characterName
+    productionCompanyNames: productionCompanies[*].name
+    imdbUri: imdbUri
+    importance: importance
+    nbOrigins: nbOrigins
+    wikipediaPageviews: wikipediaPageviews
+    wikipediaPageviewsLastYear: wikipediaPageviewsLastYear
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
+  cost: { bucket: diffbot, rate: "5/sec", yield: medium }
+
+- name: moviesByDirector
+  kind: remote
+  operation: dqlSearch
+  args:
+    query: "type:Movie directors.name:{keys} {filters}"
+    size: 20
+  keyTemplate: '"{key}"'
+  batchSafe: false
+  echoKeyAs: matchedFor
+  records: "$.data[*].entity"
+  pushdown:
+    - property: releaseDate
+      op: GREATER_THAN
+      qualifier: 'releaseDate>"{value}"'
+      valuePattern: '^(\d{4}-\d{2}-\d{2})'
+  project:
+    diffbotId: id
+    name: name
+    summary: summary
+    description: description
+    releaseDate: releaseDate.str
+    releaseDateTimestamp: releaseDate.timestamp
+    genres: genres
+    languages: languages
+    countryOfOrigin: countryOfOrigin
+    directorNames: directors[*].name
+    writerNames: writers[*].name
+    castNames: castmembers[*].castmember.name
+    characterNames: castmembers[*].characterName
+    productionCompanyNames: productionCompanies[*].name
+    imdbUri: imdbUri
+    importance: importance
+    nbOrigins: nbOrigins
+    wikipediaPageviews: wikipediaPageviews
+    wikipediaPageviewsLastYear: wikipediaPageviewsLastYear
+    diffbotUri: diffbotUri
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
+  cost: { bucket: diffbot, rate: "5/sec", yield: medium }

@@ -103,22 +103,26 @@
       maxAnchors: 25
       maxFanoutTotal: 50
 
-    # People search with no graph anchor, seeded from the question:
-    #   MATCH (:DiffbotPersonSearch {ask:'CTOs in Melbourne'})-[:MATCHED]->(p) RETURN p.name
-    - anchorLabel: DiffbotPersonSearch
-      relationship: MATCHED
-      keyField: ask
+    # Structured people search: the job title is the key, and location narrows via pushdown.
+    #   MATCH (:DiffbotJobTitle {title:'CTO'})-[:HELD_BY]->(p:DiffbotPerson)
+    #   WHERE p.city = 'Melbourne'
+    - anchorLabel: DiffbotJobTitle
+      relationship: HELD_BY
+      keyField: title
       recordKeyField: matchedFor
-      producer: peopleByAsk
+      producer: peopleByTitle
       maxAnchors: 4
       maxFanoutTotal: 200
 
-- name: DiffbotPersonSearch
+- name: DiffbotJobTitle
   userAnchor: false
   description: |
-    A people search against the Diffbot Knowledge Graph, seeded from the question itself. Traverse
-    MATCHED to run it. Covers the public professional record only, capped at 50 results per search.
+    A job title, used as a search anchor over CURRENT employments. Traverse HELD_BY for the people
+    holding it, and narrow with predicates on the person (city, country), which push to the source.
+
+    The title is matched as Diffbot records it, so prefer the common form ("CTO", "Chief Technology
+    Officer") and expect a title that nobody spells that way to return nothing.
   properties:
-    ask:
+    title:
       identity: true
-      description: "The question, in plain language. Rewritten into DQL at fetch time."
+      description: "The job title, as it would appear on a profile."

@@ -71,7 +71,7 @@ as an `apiKey in: query`, and the host injects it.
 | `DiffbotArticle` | an organization or a person | reached by entity tag, not keyword |
 | `DiffbotJobPost` | an organization | hiring signal |
 | `DiffbotCompany` | literal-seeded from a NAME | resolves to exactly ONE company |
-| `DiffbotOrgSearch` / `DiffbotPersonSearch` / `DiffbotMovieSearch` | literal-seeded from the question | plain language → DQL, up to 20 results |
+| `DiffbotIndustry` / `DiffbotJobTitle` / `DiffbotGenre` / `DiffbotDirector` | literal-seeded search anchors | the anchor IS the source key; predicates push down |
 
 ### Edges
 
@@ -99,13 +99,6 @@ as an `apiKey in: query`, and the host injects it.
 a non-current employment record there, so someone promoted internally comes back as their own
 company's alum — Tim Cook is an Apple alum by this filter. The honest set is this edge MINUS
 `EMPLOYS`, which is what `TalentFlow` does, and it is a set difference Diffbot cannot express.
-
-**Every DQL operator attaches to a field.** `or(...)` is not a clause on its own —
-`industries:or("a","b")` is valid, `industries:"a" or("b","c")` is a syntax error that rejects the
-whole query. `has:` needs a terminal leaf path: `has:investments.amount.value` works,
-`has:investments` does not. Both rules are now stated in the authoring prompt and enforced by
-`check-examples.py`, because the model had learned the bare-`or()` form from an example that only
-ever showed the attached one.
 
 **`location` is the headquarters; `locations` is every office.** They differ by an `s` and answer
 different questions: `locations.city.name:"Sydney"` returns 672 companies led by Google, Microsoft,
@@ -146,6 +139,31 @@ such bugs in the first draft.
 python3 scripts/check-wiring.py
 ```
 
+### No model writes DQL
+
+The realm generates no source query. Every search anchor's identity IS the source key, and every
+other predicate is rendered into DQL by a declared `pushdown:` rule:
+
+```cypher
+MATCH (:DiffbotIndustry {name:'Real Estate'})-[:HAS_COMPANY]->(o:DiffbotOrganization)
+WHERE o.country = 'Australia' AND o.nbEmployees > 500
+```
+
+sends `type:Organization industries:"Real Estate" location.country.name:"Australia" nbEmployees>500`.
+The LLM writes Cypher — the one language it should write — and malformed DQL stops being
+expressible.
+
+An earlier design had an LLM rewrite plain English into DQL, following the spec's `keyTransform`
+example. It was the wrong tool for this source. The model emitted a bare `or(...)` with no field
+attached, Diffbot answered 400, the producer contributed no records, and the failure surfaced three
+hops away as a missing relationship type. The bad rewrite was then cached for a week, so fixing the
+prompt could not heal the phrase that had broken. `keyTransform` earns its place where a source
+speaks a genuinely idiosyncratic dialect (ClinicalTrials.gov's uppercase-only Essie operators); DQL
+is `field:value` with comparisons, which is mechanically renderable.
+
+Correctness never depends on pushdown. Every rule carries a `valuePattern`, and a value that fails
+it filters graph-side instead of being pasted into DQL it would break — same rows, higher cost.
+
 ### One company, or many — pick the right entry point
 
 ```cypher
@@ -175,15 +193,7 @@ the shipped YAML, calls Diffbot, and checks that the fields the joins depend on 
 ```bash
 DIFFBOT_TOKEN=... python3 scripts/probe-live.py            # all 16, a few hundred credits
 DIFFBOT_TOKEN=... python3 scripts/probe-live.py orgsById   # or one
-DIFFBOT_TOKEN=... python3 scripts/check-examples.py        # every few-shot output, ~13 credits
 ```
-
-[`scripts/check-examples.py`](scripts/check-examples.py) executes every `keyTransform` few-shot
-OUTPUT as a real query. A few-shot example is not documentation — it is the pattern the model
-imitates, so an invalid one is a bug factory, and the damage surfaces far from the cause: the
-producer takes an HTTP 400, contributes no records, and the query reports a missing relationship
-type three hops downstream. It caught two invalid examples on its first run, including one
-(`has:investments`) that had shipped unnoticed.
 
 Last full sweep 2026-08-14: **16/16 producers healthy**, every projected field present.
 
