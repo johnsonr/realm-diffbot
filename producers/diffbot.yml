@@ -18,11 +18,10 @@
 # producer pages. The response's own `hits` reports what the index matched, so a narrow answer to a
 # wide question is visible rather than hidden.
 #
-# RATE IS TIER-DEPENDENT AND THE DEFAULT IS THE FLOOR. The free plan allows 5 requests per MINUTE;
-# Startup allows 5 per SECOND — a 60x difference behind the same token. The bucket below is paced
-# for the free plan, because that is what an unconfigured install has, and a realm that bursts at
-# paid-tier speed on a free token spends its month on 429s. On a paid plan, raise every
-# `rate:` here to "5/sec" (Startup) or "25/sec" (Plus).
+# RATE IS TIER-DEPENDENT. The free plan allows 5 requests per MINUTE; Startup allows 5 per SECOND —
+# a 60x difference behind an identical token. This is paced for STARTUP. On the free plan drop every
+# `rate:` here to "4/min", or the realm bursts 60x too fast and spends the month on 429s; on Plus
+# raise it to "25/sec".
 
 # ---------------------------------------------------------------------------------------------
 # Entity resolution — turning something we hold into a Diffbot identity.
@@ -93,7 +92,7 @@
     negativeTtlSeconds: 604800
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: high
 
 # Person bridge. Email, for the same reason Organization uses domain: it identifies, a name does
@@ -138,7 +137,7 @@
     negativeTtlSeconds: 604800
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: high
 
 # ---------------------------------------------------------------------------------------------
@@ -209,7 +208,7 @@
     negativeTtlSeconds: 86400  # an id the graph does not hold stays unheld
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: high
 
 - name: peopleById
@@ -256,7 +255,7 @@
     negativeTtlSeconds: 86400
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: high
 
 # ---------------------------------------------------------------------------------------------
@@ -323,7 +322,7 @@
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 # Companies that name this one as a competitor. NOT the same as the company's own `competitors`
@@ -390,7 +389,7 @@
   cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: low
 
 # Current employees of a company, as Diffbot knows them — which means the publicly visible ones,
@@ -445,7 +444,7 @@
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: low
 
 # News mentioning an entity. Diffbot tags every article with the KG entities it mentions, and the
@@ -520,7 +519,7 @@
     negativeTtlSeconds: 3600
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 # Open roles at a company — a demand signal nobody expects to find in Diffbot, and one that reads
@@ -561,7 +560,7 @@
   cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 # PAST employees. `isCurrent:false` asks Diffbot for anyone holding a NON-current employment record
@@ -605,7 +604,7 @@
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 86400 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: low
 
 # ---------------------------------------------------------------------------------------------
@@ -638,15 +637,22 @@
       - Always start with `type:Organization`.
       - Filter with dot-paths onto the record's own fields. Use only fields you are confident
         Diffbot's Organization ontology defines.
+      - PLACE: `location` is the HEADQUARTERS; `locations` is EVERY office. "companies in X",
+        "X companies" and "based in X" mean the HQ, so use `location.city.name` /
+        `location.country.name`. Use the plural `locations.` ONLY when the request is about
+        presence — "has an office in", "operates in", "hiring in". Getting this backwards is the
+        difference between Sydney companies and every multinational with a Sydney branch.
       - Numeric comparisons use bare > < >= <=, e.g. nbEmployees>500. Quote string values.
       - Use or("a","b") for alternatives and not(...) for exclusions.
       - Use has:field to require a field be present at all.
       - Return the expression only — no commentary, no surrounding quotes, no field name prefix.
     examples:
       - input: "software companies in Sydney with more than 500 staff"
-        output: 'type:Organization locations.city.name:"Sydney" industries:"Software" nbEmployees>500'
+        output: 'type:Organization location.city.name:"Sydney" industries:"Software" nbEmployees>500'
+      - input: "companies with an office in Sydney"
+        output: 'type:Organization locations.city.name:"Sydney"'
       - input: "Australian mining companies that are publicly listed"
-        output: 'type:Organization locations.country.name:"Australia" industries:"Mining" isPublic:true'
+        output: 'type:Organization location.country.name:"Australia" industries:"Mining" isPublic:true'
       - input: "private equity firms that have acquired someone"
         output: 'type:Organization industries:"Private Equity" has:investments'
       - input: "companies like Diffbot but not Diffbot itself"
@@ -699,7 +705,7 @@
   cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 - name: peopleByAsk
@@ -720,6 +726,8 @@
       - Employment predicates go inside a subquery on the collection:
         employments.{title:"..." isCurrent:true}. Use isCurrent:true unless the request is
         explicitly about past roles.
+      - PLACE: `location` is where the person is NOW; `locations` is everywhere they have lived.
+        "in X" means where they are now, so use `location.city.name`.
       - Use or("a","b") for alternatives and not(...) for exclusions. Quote string values.
       - Return the expression only — no commentary, no surrounding quotes.
     examples:
@@ -728,7 +736,7 @@
       - input: "people who used to work at Oracle and now work somewhere else"
         output: 'type:Person employments.{employer.name:"Oracle" isCurrent:false}'
       - input: "CTOs in Melbourne"
-        output: 'type:Person employments.{title:or("CTO","Chief Technology Officer") isCurrent:true} locations.city.name:"Melbourne"'
+        output: 'type:Person employments.{title:or("CTO","Chief Technology Officer") isCurrent:true} location.city.name:"Melbourne"'
     cacheSeconds: 604800
   records: "$.data[*].entity"
   # Written out in full rather than shared with a YAML anchor. Jackson's YAML parser resolves
@@ -762,7 +770,7 @@
   cache: { kind: ttl, seconds: 21600, negativeTtlSeconds: 21600 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 # ---------------------------------------------------------------------------------------------
@@ -825,7 +833,7 @@
   cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 # Same reasoning for people. A film's directors and cast arrive as bare names — Diffbot does not
@@ -864,7 +872,7 @@
   cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 - name: moviesByAsk
@@ -923,7 +931,7 @@
   cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 604800 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: medium
 
 # The CROSS-REALM bridge: realm-movie holds films the user has rated, keyed by IMDb id, and Diffbot
@@ -965,5 +973,5 @@
   cache: { kind: ttl, seconds: 2592000, negativeTtlSeconds: 604800 }
   cost:
     bucket: diffbot
-    rate: "4/min"
+    rate: "5/sec"
     yield: high

@@ -99,6 +99,13 @@ a non-current employment record there, so someone promoted internally comes back
 company's alum — Tim Cook is an Apple alum by this filter. The honest set is this edge MINUS
 `EMPLOYS`, which is what `TalentFlow` does, and it is a set difference Diffbot cannot express.
 
+**`location` is the headquarters; `locations` is every office.** They differ by an `s` and answer
+different questions: `locations.city.name:"Sydney"` returns 672 companies led by Google, Microsoft,
+IBM and Siemens — every multinational with a Sydney branch — while `location.city.name:"Sydney"`
+returns 113 actual Sydney companies. The plural reads as the natural translation of "companies in
+Sydney" and is confidently wrong, so the DQL-authoring prompt teaches the singular for "in X" and
+the plural only for "has an office in X", with a worked example of each. Verified live 2026-08-14.
+
 **A film's people and companies arrive as NAMES, not ids.** Diffbot resolves `parentCompany` to an
 entity id but not a film's `directors` or `productionCompanies`. Those hops therefore go through
 `enhance` with a 0.75 threshold rather than a DQL name search — `type:Organization name:"Warner Bros.
@@ -193,13 +200,12 @@ at this realm's default `size: 10` — enough to demo, not enough to develop aga
 per minute is 60x slower than Startup, so a single ownership walk fanning across four hops spends
 most of a minute waiting.
 
-**The rate bucket here is paced for the FREE plan (`4/min`)**, because that is what an unconfigured
-install has and bursting at paid speed on a free token spends the month on 429s. On a paid plan,
-raise it:
+**The rate bucket here is paced for STARTUP (`5/sec`).** On the free plan drop it, or the realm
+bursts 60x too fast and spends the month on 429s:
 
 ```bash
-sed -i '' 's|rate: "4/min"|rate: "5/sec"|g' producers/diffbot.yml     # Startup
-sed -i '' 's|rate: "4/min"|rate: "25/sec"|g' producers/diffbot.yml    # Plus
+sed -i '' 's|rate: "5/sec"|rate: "4/min"|g' producers/diffbot.yml     # Free
+sed -i '' 's|rate: "5/sec"|rate: "25/sec"|g' producers/diffbot.yml    # Plus
 ```
 
 ## Cost — read this before running anything wide
@@ -281,6 +287,23 @@ node), as a warm cache. Every fetched fact — headcount, revenue, articles, job
 and rolls back with the query. Confirm that posture is permitted under your subscription before
 deploying; if bridge persistence is not allowed, set `writeThrough: false` on the two bridges and pay
 the resolution cost per query.
+
+## Coverage, measured
+
+Sampled live on 2026-08-14 rather than assumed, because coverage outside US tech is the thing that
+decides whether this realm is a research tool or a demo.
+
+**Listed Australian companies: 9 of 10 resolved by domain**, with 89–1,880 sources each and revenue
+on every match. The one miss was a private building-products firm.
+
+**Australian private mid-market** (200–2,000 staff, not listed): **15,420 companies**, and of a
+25-company sample every one had industries, 22 had revenue, 9 had a parent company, and the median
+source count was 414 with no record under 80 sources.
+
+Read that sample with one caveat: DQL returns results relevance-ranked, so the top 25 are the
+best-covered 25 and the true median across all 15,420 is lower. The finding is that AU mid-market
+coverage EXISTS at useful depth, not that every record is 400 sources deep. Check `nbOrigins` per
+record rather than trusting the aggregate.
 
 ## What Diffbot is and is not
 
