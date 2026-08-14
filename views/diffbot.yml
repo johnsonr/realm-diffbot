@@ -1,13 +1,24 @@
 # Saved views.
 #
-# ENTRY POINTS. Every view that starts from a named company goes through DiffbotOrgSearch:
+# ENTRY POINTS. There are two, and picking the wrong one is the most common way to break a query.
 #
-#   MATCH (:DiffbotOrgSearch {ask: $company})-[:MATCHED]->(d:DiffbotOrganization)
+#   ONE company   MATCH (:DiffbotCompany {name: $c})-[:RESOLVED_TO]->(d:DiffbotOrganization)
+#   MANY companies MATCH (:DiffbotOrgSearch {ask: $q})-[:MATCHED]->(o:DiffbotOrganization)
 #
-# NOT `(d:DiffbotOrganization {name: $company})`. A literal-seeded anchor carries only the property
-# you pinned, and every structural producer here keys on `diffbotId` — so a name-seeded node has no
-# key, nothing is fetched, and the query returns zero rows while reporting success. The search anchor
-# resolves the name to a real entity id first, and from there every hop is available.
+# RESOLVED_TO binds exactly one entity (a scored best match). MATCHED binds the whole result set —
+# up to twenty companies — so any per-company fetch downstream fans out across all of them and the
+# engine refuses it:
+#
+#   fetching 'DiffbotPerson' via 'EMPLOYS' from each (:DiffbotOrganization) would bind 50 source
+#   nodes, exceeding maxAnchors 10 — narrow the (:DiffbotOrganization) set
+#
+# That is the engine being right: fifty fetches to answer a question about one company. Use
+# RESOLVED_TO whenever the view means "this company", and MATCHED only when it means "every company
+# like this" AND the hops after it are cheap.
+#
+# NEITHER can be replaced by `(d:DiffbotOrganization {name: $c})`. A literal-seeded anchor carries
+# only the property you pinned, and every structural producer keys on `diffbotId` — so a name-seeded
+# node has no key, nothing is fetched, and the query returns zero rows while reporting success.
 #
 # The exception is a view anchored in the USER'S graph (`:Organization`, `:Person`), where the bridge
 # supplies the id. Those are the better queries anyway — the anchor is data Diffbot cannot see.
@@ -21,9 +32,9 @@
     ask:
       type: string
       default: "Diffbot"
-      description: "Company name, or a phrase identifying it."
+      description: "The company name."
   cypher: |
-    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(o:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(o:DiffbotOrganization)
     RETURN o
 
 - name: CompanySearch
@@ -49,9 +60,9 @@
     ask:
       type: string
       default: "Shazam"
-      description: "The company to trace upward."
+      description: "The company name."
   cypher: |
-    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(d:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(d:DiffbotOrganization)
     MATCH path = (d)-[:PARENT_COMPANY*1..4]->(owner:DiffbotOrganization)
     RETURN length(path) AS level,
            owner.name AS owner,
@@ -70,9 +81,9 @@
     ask:
       type: string
       default: "Apple"
-      description: "The parent company."
+      description: "The parent company's name."
   cypher: |
-    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(parent:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(parent:DiffbotOrganization)
     OPTIONAL MATCH (parent)<-[:SUBSIDIARY_OF*1..3]-(sub:DiffbotOrganization)
     RETURN parent.name AS group,
            count(DISTINCT sub) AS entities,
@@ -89,9 +100,9 @@
     ask:
       type: string
       default: "Shazam"
-      description: "A company you already deal with."
+      description: "The name of a company you already deal with."
   cypher: |
-    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(d:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(d:DiffbotOrganization)
     MATCH (d)-[:PARENT_COMPANY*1..3]->(top:DiffbotOrganization)
     MATCH (top)<-[:SUBSIDIARY_OF*1..3]-(sibling:DiffbotOrganization)
     WHERE sibling.diffbotId <> d.diffbotId
@@ -112,8 +123,13 @@
       type: string
       default: "mining companies in Western Australia with more than 500 staff"
       description: "The market, in plain language."
+    companies:
+      type: int
+      default: 10
+      description: "How many of the matched companies to walk upward. Each one costs its own chain of fetches, so this is the view's spending ceiling."
   cypher: |
     MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(o:DiffbotOrganization)
+    WITH o ORDER BY o.importance DESC LIMIT $companies
     OPTIONAL MATCH (o)-[:PARENT_COMPANY*1..3]->(owner:DiffbotOrganization)
     WITH o, collect(owner)[-1] AS ultimate
     RETURN coalesce(ultimate.name, o.name) AS ultimateOwner,
@@ -141,14 +157,14 @@
     ask:
       type: string
       default: "Apple"
-      description: "The company whose people are fetched."
+      description: "Name of the company whose people are fetched."
     otherCompany:
       type: string
       default: "Google"
-      description: "The company tested against each person's employment history."
+      description: "Name of the company tested against each person's employment history."
   cypher: |
-    MATCH (:DiffbotOrgSearch {ask: $otherCompany})-[:MATCHED]->(b:DiffbotOrganization)
-    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(a:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $otherCompany})-[:RESOLVED_TO]->(b:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(a:DiffbotOrganization)
     MATCH (a)-[:EMPLOYS]->(p:DiffbotPerson)
     WHERE b.diffbotId IN p.employerIds
       AND ANY(t IN p.titles WHERE
@@ -176,9 +192,9 @@
     ask:
       type: string
       default: "Diffbot"
-      description: "The company people are leaving."
+      description: "The company's name."
   cypher: |
-    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(o:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(o:DiffbotOrganization)
     MATCH (o)-[:FORMERLY_EMPLOYED]->(p:DiffbotPerson)
     WHERE NOT (o)-[:EMPLOYS]->(p)
       AND p.currentEmployerId IS NOT NULL
@@ -199,13 +215,13 @@
     ask:
       type: string
       default: "Diffbot"
-      description: "The company whose competitive set to watch."
+      description: "The company's name."
     sinceDays:
       type: int
       default: 90
       description: "How far back to look."
   cypher: |
-    MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(d:DiffbotOrganization)
+    MATCH (:DiffbotCompany {name: $ask})-[:RESOLVED_TO]->(d:DiffbotOrganization)
     MATCH (d)-[:COMPETES_WITH]->(rival:DiffbotOrganization)-[:IS_HIRING_FOR]->(j:DiffbotJobPost)
     WHERE j.dateTimestamp > datetime().epochMillis - ($sinceDays * 86400000)
     RETURN rival.name AS competitor,
@@ -226,8 +242,13 @@
       type: string
       default: "companies building large language model products"
       description: "The market, in plain language."
+    companies:
+      type: int
+      default: 10
+      description: "How many matched companies to pull postings for. Each costs a fetch."
   cypher: |
     MATCH (:DiffbotOrgSearch {ask: $ask})-[:MATCHED]->(o:DiffbotOrganization)
+    WITH o ORDER BY o.importance DESC LIMIT $companies
     MATCH (o)-[:IS_HIRING_FOR]->(j:DiffbotJobPost)
     UNWIND j.skills AS skill
     RETURN skill,
@@ -412,8 +433,13 @@
       type: string
       default: "cyberpunk films after 1990"
       description: "The films, in plain language."
+    films:
+      type: int
+      default: 8
+      description: "How many films to resolve studios for. Each studio name costs its own scored lookup."
   cypher: |
     MATCH (:DiffbotMovieSearch {ask: $ask})-[:MATCHED]->(f:DiffbotMovie)
+    WITH f ORDER BY f.wikipediaPageviews DESC LIMIT $films
     MATCH (f)-[:PRODUCED_BY]->(studio:DiffbotOrganization)
     OPTIONAL MATCH (studio)-[:PARENT_COMPANY*1..4]->(owner:DiffbotOrganization)
     WITH f, studio, collect(owner)[-1] AS ultimate

@@ -190,6 +190,26 @@
       maxFanoutTotal: 100
 
     # ------------------------------------------------------------------------------------------
+    # Resolution — ONE company, by name.
+    # ------------------------------------------------------------------------------------------
+    # Distinct from MATCHED below, and the distinction is load-bearing. A SEARCH binds its whole
+    # result set: `(:DiffbotOrgSearch {ask:'Apple'})-[:MATCHED]->(o)` binds every company the query
+    # matched, so a downstream per-company fetch fans out across all of them and trips maxAnchors —
+    #   "would bind 50 source nodes, exceeding maxAnchors 10"
+    # which is the engine correctly refusing to spend fifty fetches on a question about one company.
+    #
+    # RESOLVED_TO binds exactly one, because enhance returns a single scored best match rather than
+    # a ranked list. Use this whenever a view means "this company"; use MATCHED only when it really
+    # means "every company like this".
+    - anchorLabel: DiffbotCompany
+      relationship: RESOLVED_TO
+      keyField: name
+      recordKeyField: matchedFor
+      producer: orgEnhanceByName
+      maxAnchors: 10
+      maxFanoutTotal: 10
+
+    # ------------------------------------------------------------------------------------------
     # Search — no anchor in the graph at all.
     # ------------------------------------------------------------------------------------------
     # The entry point for a question about companies the user has never corresponded with. The
@@ -205,6 +225,21 @@
       producer: orgsByAsk
       maxAnchors: 4
       maxFanoutTotal: 200
+
+# A named company, literal-seeded and resolved to exactly one entity. The entry point for every
+# question about ONE company — ownership, siblings, leavers, competitors, board seats.
+- name: DiffbotCompany
+  userAnchor: false
+  description: |
+    One company, named. Traverse RESOLVED_TO to resolve the name to a single Diffbot entity, then
+    every structural hop is available from it.
+
+    Resolution is a scored best match, so a name that is ambiguous or absent yields nothing rather
+    than a guess. Names are weak evidence: prefer the fullest form you have.
+  properties:
+    name:
+      identity: true
+      description: "The company name, as a person would write it."
 
 # A literal-seeded query scope, not a mirrored search index. Holds the question; the DQL it becomes
 # is the producer's business, and the rewrite is echoed back so it can be shown and argued with.

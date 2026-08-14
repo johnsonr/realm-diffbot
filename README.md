@@ -70,7 +70,8 @@ as an `apiKey in: query`, and the host injects it.
 | `DiffbotPerson` | core `Person` (persisted bridge), or a search | public professional record only |
 | `DiffbotArticle` | an organization or a person | reached by entity tag, not keyword |
 | `DiffbotJobPost` | an organization | hiring signal |
-| `DiffbotOrgSearch` / `DiffbotPersonSearch` | literal-seeded from the question | plain language → DQL |
+| `DiffbotCompany` | literal-seeded from a NAME | resolves to exactly ONE company |
+| `DiffbotOrgSearch` / `DiffbotPersonSearch` / `DiffbotMovieSearch` | literal-seeded from the question | plain language → DQL, up to 20 results |
 
 ### Edges
 
@@ -126,6 +127,25 @@ such bugs in the first draft.
 ```bash
 python3 scripts/check-wiring.py
 ```
+
+### One company, or many — pick the right entry point
+
+```cypher
+MATCH (:DiffbotCompany  {name: 'Apple'})-[:RESOLVED_TO]->(d)   -- exactly ONE
+MATCH (:DiffbotOrgSearch {ask: 'AI companies'})-[:MATCHED]->(o) -- the whole result set
+```
+
+Get this backwards and the engine stops you:
+
+```
+fetching 'DiffbotPerson' via 'EMPLOYS' from each (:DiffbotOrganization) would bind 50 source
+nodes, exceeding maxAnchors 10 — narrow the (:DiffbotOrganization) set
+```
+
+which is correct behaviour: twenty companies came back from a search, and a per-company fetch would
+spend fifty calls answering a question about one. `RESOLVED_TO` binds a single scored best match, so
+every downstream hop starts from one anchor. Views that genuinely fan out from a search carry an
+explicit `companies` / `films` ceiling instead.
 
 ### Views
 

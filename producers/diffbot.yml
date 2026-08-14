@@ -791,7 +791,19 @@
   echoKeyAs: matchedFor
   args:
     type: Organization
-    threshold: 0.75
+    # 0.45, not the 0.75 a domain lookup can afford. A NAME is a weak signal and enhance scores it
+    # that way: measured live, the CORRECT top match scored 0.73 for "Apple", 0.68 for "Warner Bros.
+    # Entertainment", 0.56 for "Village Roadshow Pictures" and 0.52 for "Silver Pictures". A 0.75
+    # floor rejected all four — every film studio silently failed to resolve, and PRODUCED_BY
+    # returned nothing while looking like a company with no parent.
+    #
+    # The floor still earns its place: the runner-up scored 0.26 for "Apple" and 0.15 for "Silver
+    # Pictures", so the gap between right and wrong is wide even where the absolute score is low.
+    threshold: 0.45
+    # ONE match. enhance ranks candidates, but this producer echoes the queried name onto EVERY
+    # record it returns — so asking for three candidates would link all three to the anchor and
+    # attribute a film to two studios it has nothing to do with.
+    size: 1
   records: "$.data[*].entity"
   project:
     diffbotId: id
@@ -846,7 +858,11 @@
   echoKeyAs: matchedFor
   args:
     type: Person
-    threshold: 0.75
+    # Same reasoning as orgEnhanceByName: a bare personal name scores in the 0.5-0.7 band even when
+    # the top match is right. People are riskier than companies here — names collide far more often
+    # — so this stays a best guess to be checked, never a fact to repeat.
+    threshold: 0.45
+    size: 1
   records: "$.data[*].entity"
   project:
     diffbotId: id
